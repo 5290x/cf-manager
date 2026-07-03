@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
-import { getActiveAccounts, getAccountById } from '../models/account';
+import { getActiveAccountsByFeature, getAccountById } from '../models/account';
 import { createAuditLog } from '../models/auditLog';
+import { appLogger } from '../services/logger';
 import { getAccountOr404 } from './routeUtils';
 import {
   listWorkers, listPages, deployWorker, deployWorkerFromUrl, deleteWorker, deletePagesProject, getWorkerLogs, deployPages,
@@ -38,20 +39,20 @@ const router = Router();
 // ============ List all ============
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const accounts = getActiveAccounts();
+    const accounts = getActiveAccountsByFeature('workers');
     const allItems: Array<any> = [];
     for (const account of accounts) {
       try {
         const workers = await listWorkers(account);
         allItems.push(...workers.map(w => ({ ...w, type: 'worker', cfAccountId: account.id, accountName: account.name })));
       } catch (err) {
-        console.error(`[Workers] Failed to list workers for ${account.name}:`, err);
+        appLogger.error(`[Workers] Failed to list workers for ${account.name}: ${err}`);
       }
       try {
         const pages = await listPages(account);
         allItems.push(...pages.map(p => ({ ...p, type: 'pages', cfAccountId: account.id, accountName: account.name })));
       } catch (err) {
-        console.error(`[Pages] Failed to list pages for ${account.name}:`, err);
+        appLogger.error(`[Pages] Failed to list pages for ${account.name}: ${err}`);
       }
     }
     res.json(allItems);
@@ -112,15 +113,15 @@ router.get('/:accountId/workers/:name/logs', async (req: Request, res: Response,
 });
 
 router.post('/:accountId/pages/deploy', (req: Request, res: Response, next: NextFunction) => {
-  console.log(`[Pages Deploy] Multer starting for ${req.url}`);
+  appLogger.info(`[Pages Deploy] Multer starting for ${req.url}`);
   uploadPages.array('files', 100)(req, res, (multerErr: any) => {
     if (multerErr) {
-      console.error(`[Pages Deploy] Multer error: ${multerErr.message}`, multerErr.code);
+      appLogger.error(`[Pages Deploy] Multer error: ${multerErr.message} ${multerErr.code}`);
       const err = new Error(`File upload error: ${multerErr.message}`);
       (err as any).statusCode = 400;
       return next(err);
     }
-    console.log(`[Pages Deploy] Multer done, files: ${(req.files as any[])?.length || 0}`);
+    appLogger.info(`[Pages Deploy] Multer done, files: ${(req.files as any[])?.length || 0}`);
     handlePagesDeploy(req, res, next);
   });
 });
@@ -137,7 +138,7 @@ async function handlePagesDeploy(req: Request, res: Response, next: NextFunction
     
     // Check if it's a single zip file
     if (uploadedFiles && uploadedFiles.length > 0) {
-      console.log(`[Pages Deploy Route] Received ${uploadedFiles.length} files: ${uploadedFiles.map(f => f.originalname).join(', ')}`);
+      appLogger.info(`[Pages Deploy Route] Received ${uploadedFiles.length} files: ${uploadedFiles.map(f => f.originalname).join(', ')}`);
       if (uploadedFiles.length === 1 && uploadedFiles[0].originalname?.toLowerCase().endsWith('.zip')) {
         const zip = new AdmZip(uploadedFiles[0].buffer);
         const entries = zip.getEntries();
@@ -169,10 +170,10 @@ async function handlePagesDeploy(req: Request, res: Response, next: NextFunction
     const skipCreateProject = req.body.skipCreateProject === 'true' || req.body.skipCreateProject === true;
     const result = await deployPages(account, name, files, skipCreateProject);
     createAuditLog(account.id, 'deploy_pages', name, files.length > 0 ? `${files.length} files` : 'empty project', 'success');
-    console.log(`[Pages Deploy Route] Success for ${name}`);
+    appLogger.info(`[Pages Deploy Route] Success for ${name}`);
     res.status(201).json(result);
   } catch (err: any) {
-    console.error(`[Pages Deploy Route] Error: ${err.message}`, err.statusCode || 500);
+    appLogger.error(`[Pages Deploy Route] Error: ${err.message} ${err.statusCode || 500}`);
     next(err);
   }
 }
@@ -465,7 +466,7 @@ router.put('/:accountId/pages/:name/bindings', async (req: Request, res: Respons
 // ============ Workers Usage (GraphQL) ============
 router.get('/usage', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const accounts = getActiveAccounts();
+    const accounts = getActiveAccountsByFeature('workers');
     const results: Array<{ accountId: number; accountName: string; requests: number; errors: number; subrequests: number; cpuTimeMs: number }> = [];
     for (const account of accounts) {
       try {
@@ -476,7 +477,7 @@ router.get('/usage', async (_req: Request, res: Response, next: NextFunction) =>
           ...usage,
         });
       } catch (err) {
-        console.error(`[Usage] Failed for account ${account.name}:`, err);
+        appLogger.error(`[Usage] Failed for account ${account.name}: ${err}`);
         results.push({ accountId: account.id, accountName: account.name, requests: 0, errors: 0, subrequests: 0, cpuTimeMs: 0 });
       }
     }

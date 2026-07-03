@@ -1,8 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { getAllAccounts, createAccount, deleteAccount, getAccountById, updateAccountStatus, updateAccountId, AccountInput } from '../models/account';
+import { getAllAccounts, createAccount, deleteAccount, getAccountById, updateAccountStatus, updateAccountId, updateAccountFeatures, AccountInput } from '../models/account';
 import { encrypt } from '../services/encryptionService';
 import { getCfClient } from '../services/cfFactory';
 import { getQuotaSummary } from '../services/quotaTracker';
+import { clearCache } from '../services/accountRouter';
+import { appLogger } from '../services/logger';
 import { createAuditLog } from '../models/auditLog';
 
 const router = Router();
@@ -39,7 +41,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const input: AccountInput = { name, auth_type, account_id };
+    const input: AccountInput = { name, auth_type, account_id, enabled_features: req.body.enabled_features };
     if (auth_type === 'token') {
       input.api_token = encrypt(api_token);
     } else {
@@ -61,12 +63,12 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
           }
           if (accts.length > 0) {
             updateAccountId(id, accts[0].id);
-            console.log(`[Account] Auto-fetched account_id=${accts[0].id} for "${name}"`);
+            appLogger.info(`[Account] Auto-fetched account_id=${accts[0].id} for "${name}"`);
           }
           updateAccountStatus(id, true);
         }
       } catch (e) {
-        console.warn(`[Account] Failed to auto-fetch account_id for "${name}":`, e);
+        appLogger.warn(`[Account] Failed to auto-fetch account_id for "${name}": ${e}`);
       }
     }
 
@@ -75,11 +77,29 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+router.patch('/:id/features', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    const account = getAccountById(id);
+    if (!account) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found' } }); return; }
+    const { enabled_features } = req.body;
+    if (typeof enabled_features !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'enabled_features is required' } });
+      return;
+    }
+    updateAccountFeatures(id, enabled_features);
+    clearCache();
+    createAuditLog(id, 'update_features', account.name, enabled_features, 'success');
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = parseInt(req.params.id as string, 10);
     const account = getAccountById(id);
-    createAuditLog(id, 'delete_account', account?.name || String(id), null, 'success');
+    if (!account) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found' } }); return; }
+    createAuditLog(id, 'delete_account', account.name, null, 'success');
     deleteAccount(id);
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -105,7 +125,7 @@ router.post('/:id/test', async (req: Request, res: Response, next: NextFunction)
         }
       } catch (e) {
         // 获取账号列表失败不是致命错误，继续返回测试结果
-        console.warn('Failed to fetch account list:', e);
+        appLogger.warn(`Failed to fetch account list: ${e}`);
       }
     }
 

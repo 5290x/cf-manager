@@ -1,7 +1,6 @@
-import { getActiveAccounts, Account } from '../models/account';
-import { getAccountQuota } from './quotaTracker';
-import { setQuota } from '../models/quotaUsage';
+import { getActiveAccountsByFeature, Account } from '../models/account';
 import { clearCache } from './accountRouter';
+import { appLogger } from './logger';
 
 const TOKEN_INTERVAL_MS = 10_000;
 
@@ -14,7 +13,7 @@ interface AccountBucket {
 const buckets = new Map<number, AccountBucket>();
 
 function ensureBuckets(): void {
-  const accounts = getActiveAccounts();
+  const accounts = getActiveAccountsByFeature('browser_render');
   for (const acct of accounts) {
     if (!buckets.has(acct.id)) {
       buckets.set(acct.id, { accountId: acct.id, lastUsedAt: 0, exhausted: false });
@@ -30,9 +29,8 @@ function ensureBuckets(): void {
 export function markAccountExhausted(accountId: number): void {
   const bucket = buckets.get(accountId);
   if (bucket) bucket.exhausted = true;
-  setQuota(accountId, 'browser_render_seconds', 600);
   clearCache();
-  console.log(`[BrowserRL] Account ${accountId} marked as exhausted`);
+  appLogger.info(`[BrowserRL] Account ${accountId} marked as exhausted (CF daily limit)`);
 }
 
 export type AcquireResult =
@@ -42,7 +40,7 @@ export type AcquireResult =
 
 export function acquireToken(): AcquireResult {
   ensureBuckets();
-  const accounts = getActiveAccounts();
+  const accounts = getActiveAccountsByFeature('browser_render');
   const now = Date.now();
 
   let shortestWait = Infinity;
@@ -51,12 +49,6 @@ export function acquireToken(): AcquireResult {
   for (const account of accounts) {
     const bucket = buckets.get(account.id);
     if (!bucket || bucket.exhausted) continue;
-
-    const { remaining } = getAccountQuota(account.id, 'browser_render_seconds');
-    if (remaining <= 0) {
-      bucket.exhausted = true;
-      continue;
-    }
 
     hasAvailableAccount = true;
     const elapsed = now - bucket.lastUsedAt;

@@ -5,6 +5,7 @@ import { getAuthHeaders } from '../services/cfFactory';
 import { createAuditLog } from '../models/auditLog';
 import { setQuota } from '../models/quotaUsage';
 import { proxyFetch } from '../services/proxyService';
+import { appLogger } from '../services/logger';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ router.post('/chat/completions', async (req: Request, res: Response, next: NextF
         const errorText = await cfResp.text();
 
         if (isNeuronLimitError(errorText)) {
-          console.log(`[AI] Account ${account.name} neuron limit hit (4006)`);
+          appLogger.warn(`[AI] Account ${account.name} neuron limit hit (4006)`);
           setQuota(account.id, 'ai_neurons', 10000);
           clearCache();
           createAuditLog(account.id, 'ai_inference', req.body.model, '4006 neuron limit, switching', 'error');

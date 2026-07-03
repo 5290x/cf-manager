@@ -1,5 +1,6 @@
 import * as cron from 'node-cron';
 import { getDb } from '../db';
+import { appLogger } from './logger';
 
 export interface ScheduledTask {
   id: number;
@@ -127,7 +128,7 @@ function scheduleTask(id: number): void {
   if (!task || !task.enabled) return;
 
   const job = cron.schedule(task.cron, () => {
-    executeTask(task).catch(err => console.error(`[Task ${task.id}] Execution failed:`, err));
+    executeTask(task).catch(err => appLogger.error(`[Task ${task.id}] Execution failed: ${err}`));
   });
   activeJobs.set(id, job);
 }
@@ -147,5 +148,5 @@ export function initScheduler(): void {
       scheduleTask(task.id);
     }
   }
-  console.log(`[Scheduler] Initialized ${tasks.filter(t => t.enabled).length} active tasks`);
+  appLogger.info(`[Scheduler] Initialized ${tasks.filter(t => t.enabled).length} active tasks`);
 }

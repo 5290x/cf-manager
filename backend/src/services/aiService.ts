@@ -1,6 +1,7 @@
 import { Account } from '../models/account';
 import { getCfClient, getAuthHeaders } from './cfFactory';
-import { proxyFetch } from './proxyService';
+import { proxyFetch, type FetchResponse } from './proxyService';
+import { appLogger } from './logger';
 
 export async function getAvailableModels(account: Account, taskFilter?: string): Promise<any[]> {
   if (!account.account_id) {
@@ -94,7 +95,7 @@ export async function runInferenceStream(
     stream: true,
   };
 
-  console.log(`[AI] Streaming: model=${model}`);
+  appLogger.info(`[AI] Streaming: model=${model}`);
 
   try {
     const response = await proxyFetch(url, {
@@ -147,7 +148,7 @@ export async function runInferenceStream(
               onContent?.(parsed.response);
             }
           } catch (e) {
-            console.warn('[AI] Failed to parse SSE data:', data);
+            appLogger.warn(`[AI] Failed to parse SSE data: ${data}`);
           }
         }
       }
@@ -169,7 +170,7 @@ export async function runInferenceStream(
 
     if (!earlyReturn) onDone?.();
   } catch (err) {
-    console.error('[AI] Stream error:', err);
+    appLogger.error(`[AI] Stream error: ${err}`);
     onError?.(err instanceof Error ? err : new Error(String(err)));
   }
 }
@@ -214,7 +215,7 @@ export async function getAiUsageToday(account: Account): Promise<AiUsage> {
   const headers = getAuthHeaders(account);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  let resp: Response;
+  let resp: FetchResponse;
   try {
     resp = await proxyFetch('https://api.cloudflare.com/client/v4/graphql', {
       method: 'POST',
@@ -226,7 +227,7 @@ export async function getAiUsageToday(account: Account): Promise<AiUsage> {
       signal: controller.signal,
     });
   } catch (e) {
-    console.error(`[AI Usage] Fetch failed for ${account.name}:`, e);
+    appLogger.error(`[AI Usage] Fetch failed for ${account.name}: ${e}`);
     return { totalNeurons: 0, models: [] };
   } finally {
     clearTimeout(timeout);
@@ -236,7 +237,7 @@ export async function getAiUsageToday(account: Account): Promise<AiUsage> {
 
   const json = await resp.json() as any;
   if (json.errors) {
-    console.error('[GraphQL] AI usage errors:', JSON.stringify(json.errors));
+    appLogger.error(`[GraphQL] AI usage errors: ${JSON.stringify(json.errors)}`);
     return { totalNeurons: 0, models: [] };
   }
 

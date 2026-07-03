@@ -3,6 +3,7 @@ import { getCfClient, getAuthHeaders } from './cfFactory';
 import { proxyFetch } from './proxyService';
 import { getAllZones } from './accountRouter';
 import crypto from 'crypto';
+import { appLogger } from './logger';
 
 export interface WorkerScript {
   id: string;
@@ -101,10 +102,10 @@ export async function listSecrets(account: Account, scriptName: string): Promise
   return secrets;
 }
 
-export async function updateSecret(account: Account, scriptName: string, name: string, type: string, text?: string, keyBase64?: string): Promise<any> {
+export async function updateSecret(account: Account, scriptName: string, secretName: string, type: string, text?: string, keyBase64?: string): Promise<any> {
   const accountId = account.account_id;
   const cf = getCfClient(account);
-  const params: any = { account_id: accountId!, name, type };
+  const params: any = { account_id: accountId!, name: secretName, type };
   if (type === 'secret_text') params.text = text;
   if (type === 'secret_key') params.key_base64 = keyBase64;
   return await cf.workers.scripts.secrets.update(scriptName, params);
@@ -253,11 +254,11 @@ export async function addPagesDomain(account: Account, projectName: string, host
     const projectInfo = await cf.pages.projects.get(projectName, { account_id: accountId! }) as any;
     // Real subdomain format: {projectName}.{accountSubdomain}.pages.dev
     pagesSubdomain = projectInfo.subdomain || `${projectName}.pages.dev`;
-    console.log(`[Pages Domain] Real subdomain: ${pagesSubdomain}`);
+    appLogger.info(`[Pages Domain] Real subdomain: ${pagesSubdomain}`);
   } catch (e) {
     // Fallback to old format if API fails
     pagesSubdomain = `${projectName}.pages.dev`;
-    console.log(`[Pages Domain] Failed to get project info, using fallback: ${pagesSubdomain}`);
+    appLogger.warn(`[Pages Domain] Failed to get project info, using fallback: ${pagesSubdomain}`);
   }
 
   // 2. Create the Pages domain association
@@ -284,15 +285,15 @@ export async function addPagesDomain(account: Account, projectName: string, host
           proxied: true,
           ttl: 1,
         } as any);
-        console.log(`[Pages Domain] Created CNAME: ${hostname} → ${pagesSubdomain} (proxied)`);
+        appLogger.info(`[Pages Domain] Created CNAME: ${hostname} → ${pagesSubdomain} (proxied)`);
       } else {
-        console.log(`[Pages Domain] CNAME already exists for ${hostname}, skipping`);
+        appLogger.info(`[Pages Domain] CNAME already exists for ${hostname}, skipping`);
       }
     } else {
-      console.log(`[Pages Domain] No matching zone found for ${hostname}, DNS record not created`);
+      appLogger.warn(`[Pages Domain] No matching zone found for ${hostname}, DNS record not created`);
     }
   } catch (dnsErr) {
-    console.error(`[Pages Domain] Failed to create DNS record:`, dnsErr);
+    appLogger.error(`[Pages Domain] Failed to create DNS record: ${dnsErr}`);
   }
 
   return result;
@@ -318,12 +319,12 @@ export async function removePagesDomain(account: Account, projectName: string, h
       for (const r of records) {
         if (r.content?.endsWith('.pages.dev')) {
           await cf.dns.records.delete(r.id, { zone_id: matchingZone.id });
-          console.log(`[Pages Domain] Deleted CNAME: ${hostname} → ${r.content}`);
+          appLogger.info(`[Pages Domain] Deleted CNAME: ${hostname} → ${r.content}`);
         }
       }
     }
   } catch (dnsErr) {
-    console.error(`[Pages Domain] Failed to delete DNS record:`, dnsErr);
+    appLogger.error(`[Pages Domain] Failed to delete DNS record: ${dnsErr}`);
   }
 
   return result;
@@ -442,13 +443,13 @@ export async function getWorkersUsageToday(account: Account): Promise<WorkersUsa
 
   if (!resp.ok) {
     const text = await resp.text();
-    console.error(`[GraphQL] Workers usage query failed: ${resp.status}`, text);
+    appLogger.error(`[GraphQL] Workers usage query failed: ${resp.status} ${text}`);
     return { requests: 0, errors: 0, subrequests: 0, cpuTimeMs: 0 };
   }
 
   const json = await resp.json() as any;
   if (json.errors) {
-    console.error('[GraphQL] Errors:', JSON.stringify(json.errors));
+    appLogger.error(`[GraphQL] Errors: ${JSON.stringify(json.errors)}`);
     return { requests: 0, errors: 0, subrequests: 0, cpuTimeMs: 0 };
   }
 
@@ -501,7 +502,7 @@ export async function deployPages(
 
   // 2. If no files, just create the project (empty project)
   if (!files || files.length === 0) {
-    console.log(`[Pages Deploy] Created empty project: ${projectName}`);
+    appLogger.info(`[Pages Deploy] Created empty project: ${projectName}`);
     const projectInfo = await cf.pages.projects.get(projectName, { account_id: accountId! });
     return projectInfo;
   }
@@ -527,7 +528,7 @@ export async function deployPages(
   }
   params.manifest = JSON.stringify(manifest);
 
-  console.log(`[Pages Deploy] ${files.length} files, manifest:`, Object.keys(manifest).slice(0, 5).join(', '), '...');
+  appLogger.info(`[Pages Deploy] ${files.length} files, manifest: ${Object.keys(manifest).slice(0, 5).join(', ')} ...`);
 
   // 4. Deploy via SDK (handles multipart form construction)
   return cf.pages.projects.deployments.create(projectName, params as any);
