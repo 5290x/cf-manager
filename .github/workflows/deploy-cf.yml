@@ -36,11 +36,6 @@ on:
         required: false
         default: 'cfmgrbest'
         type: string
-      demo_account_ids:
-        description: '演示模式保护的账户 ID（逗号分隔，如 1,2,3，留空则不启用）'
-        required: false
-        default: ''
-        type: string
       full_wipe:
         description: '完全覆盖：删除并重建 D1 数据库 + 清空 KV 命名空间'
         required: false
@@ -122,6 +117,39 @@ jobs:
           DB_NAME="${{ github.event.inputs.d1_database_name }}"
           # 为旧表添加新列（已存在则静默失败）
           wrangler d1 execute "$DB_NAME" --command="ALTER TABLE quota_usage ADD COLUMN optimistic INTEGER DEFAULT 0" --remote 2>/dev/null || true
+
+      - name: Seed deployment account (full wipe only)
+        if: ${{ github.event.inputs.full_wipe == 'true' }}
+        run: |
+          DB_NAME="${{ github.event.inputs.d1_database_name }}"
+          API_KEY="${{ github.event.inputs.cf_api_key }}"
+          API_EMAIL="${{ github.event.inputs.cf_email }}"
+          ENC_KEY="${{ github.event.inputs.encryption_key }}"
+
+          # 获取 Account ID
+          ACCOUNT_ID=$(wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+          if [ -z "$ACCOUNT_ID" ]; then
+            echo "WARNING: 无法获取 Account ID，account_id 将为空"
+          fi
+
+          # 使用 Node.js 加密 API Key（与 worker/src/services/encryption.ts 算法一致）
+          ENCRYPTED=$(node -e "
+            const crypto = require('node:crypto');
+            const text = process.argv[1], rawKey = process.argv[2];
+            const keyData = /^[0-9a-fA-F]{64}$/.test(rawKey)
+              ? Buffer.from(rawKey, 'hex')
+              : crypto.createHash('sha256').update(rawKey).digest();
+            crypto.subtle.importKey('raw', keyData, 'AES-GCM', false, ['encrypt']).then(key => {
+              const iv = crypto.getRandomValues(new Uint8Array(12));
+              const encoded = new TextEncoder().encode(text);
+              return crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded).then(encrypted => {
+                console.log(Buffer.from(iv).toString('hex') + ':' + Buffer.from(encrypted).toString('hex'));
+              });
+            });
+          " "$API_KEY" "$ENC_KEY")
+
+          echo "插入部署账户..."
+          wrangler d1 execute "$DB_NAME" --remote --command="INSERT INTO accounts (name, auth_type, api_key, email, account_id, enabled_features) VALUES ('Deploy Account', 'global_key', '$ENCRYPTED', '$API_EMAIL', '$ACCOUNT_ID', 'ai,workers,browser_render,dns,storage')"
 
       - name: Setup KV namespace
         id: kv
@@ -208,12 +236,23 @@ jobs:
 
       - name: Configure secrets
         run: |
-          echo "${{ github.event.inputs.encryption_key }}" | wrangler pages secret put ENCRYPTION_KEY --project-name "${{ github.event.inputs.project_name }}"
+          PROJECT="${{ github.event.inputs.project_name }}"
+          DB_NAME="${{ github.event.inputs.d1_database_name }}"
+
+          echo "${{ github.event.inputs.encryption_key }}" | wrangler pages secret put ENCRYPTION_KEY --project-name "$PROJECT"
           if [ -n "${{ github.event.inputs.api_secret }}" ]; then
-            echo "${{ github.event.inputs.api_secret }}" | wrangler pages secret put API_SECRET --project-name "${{ github.event.inputs.project_name }}"
+            echo "${{ github.event.inputs.api_secret }}" | wrangler pages secret put API_SECRET --project-name "$PROJECT"
           fi
-          if [ -n "${{ github.event.inputs.demo_account_ids }}" ]; then
-            echo "${{ github.event.inputs.demo_account_ids }}" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "${{ github.event.inputs.project_name }}"
+
+          # 从 D1 自动获取所有账户 ID 作为演示模式保护列表
+          echo "查询 D1 中的账户列表..."
+          ACCOUNT_IDS=$(wrangler d1 execute "$DB_NAME" --remote --command="SELECT GROUP_CONCAT(id) AS ids FROM accounts" --json 2>&1 || true)
+          DEMO_IDS=$(echo "$ACCOUNT_IDS" | grep -oP '"ids"\s*:\s*"[^"]*"' | grep -oP '(?<="ids":")[^"]*' || echo "")
+          if [ -n "$DEMO_IDS" ]; then
+            echo "保护账户 IDs: $DEMO_IDS"
+            echo "$DEMO_IDS" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT"
+          else
+            echo "暂无账户，跳过 DEMO_ACCOUNT_IDS 设置"
           fi
 
       - name: Deploy to Cloudflare Pages

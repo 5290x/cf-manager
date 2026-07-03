@@ -4,10 +4,12 @@ FROM node:24-alpine AS builder
 RUN --mount=type=cache,target=/var/cache/apk apk add --no-cache python3 make g++
 
 WORKDIR /app
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
-COPY tsconfig.json ./
-COPY src ./src
+COPY backend/tsconfig.json ./
+COPY backend/src ./src
+# model-pricing.json 在 .gitignore 中，需从 shared/ 手动拷贝
+COPY shared/model-pricing.json ./src/data/model-pricing.json
 RUN npx tsc
 # Prune dev deps in builder so production just copies clean node_modules
 RUN npm prune --omit=dev
