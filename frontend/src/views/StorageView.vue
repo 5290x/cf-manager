@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-view">
     <n-h2>存储管理</n-h2>
     <n-space align="center" style="margin-bottom: 16px">
      <span>账号：</span>

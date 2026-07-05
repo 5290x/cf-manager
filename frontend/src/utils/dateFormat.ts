@@ -17,3 +17,22 @@ export function formatCN(input: string | number | Date): string {
   if (isNaN(date.getTime())) return '-';
   return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 }
+
+export function formatCNShort(input: string | number | Date): string {
+  let date: Date;
+  if (input instanceof Date) {
+    date = input;
+  } else if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(input)) {
+    date = new Date(input + 'Z');
+  } else {
+    date = new Date(input);
+  }
+  if (isNaN(date.getTime())) return '-';
+  return date.toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}

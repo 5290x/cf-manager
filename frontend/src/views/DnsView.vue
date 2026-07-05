@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-view">
     <n-h2>DNS 管理</n-h2>
     <n-grid :cols="24" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
       <!-- 左侧域名列表 -->

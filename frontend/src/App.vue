@@ -41,7 +41,7 @@
                     <n-button v-if="isAuthenticated" quaternary size="small" @click="handleLogout">退出</n-button>
                   </n-space>
                 </n-layout-header>
-                <n-layout-content content-style="padding: 24px;" style="height: calc(100vh - 48px); overflow-y: auto">
+                <n-layout-content content-style="padding: 24px; height: 100%; box-sizing: border-box;" style="height: calc(100vh - 48px); overflow-y: auto">
                   <router-view />
                 </n-layout-content>
               </n-layout>
@@ -289,11 +289,30 @@ function toggleTheme() {
 <style scoped>
 /* Mobile Layout */
 .mobile-layout {
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.mobile-layout::-webkit-scrollbar {
+  display: none;
 }
 
 .mobile-content {
-  padding: 16px 12px 80px;
+  flex: 1;
+  overflow: hidden;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
 }
 
 /* FAB Button */

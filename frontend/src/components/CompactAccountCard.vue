@@ -1,5 +1,5 @@
 <template>
-  <n-popover trigger="click" :show="showPopover" @update:show="showPopover = $event" placement="bottom">
+  <n-popover trigger="click" :show="showPopover" @update:show="showPopover = $event" placement="bottom" style="display: block; width: 100%;">
     <template #trigger>
       <div class="compact-card" :class="{ 'compact-card--no-resources': !hasResources }" @click="showPopover = true">
         <span class="compact-card__name" :title="accountName">{{ accountName }}</span>
@@ -12,12 +12,6 @@
           </n-tooltip>
           <span v-for="i in emptyDots" :key="'empty-' + i" class="compact-card__dot" style="background-color: #ccc" />
         </div>
-        <n-tooltip v-if="hasExhausted" trigger="hover">
-          <template #trigger>
-            <span class="compact-card__exhausted-dot" />
-          </template>
-          有资源已耗尽
-        </n-tooltip>
       </div>
     </template>
 
@@ -111,8 +105,6 @@ const orderedResources = computed(() => {
 const emptyDots = computed(() => Math.max(0, 3 - orderedResources.value.length));
 
 const hasResources = computed(() => props.resources && props.resources.length > 0);
-
-const hasExhausted = computed(() => props.resources && props.resources.some(r => r.exhausted));
 </script>
 
 <style scoped>
@@ -167,20 +159,6 @@ const hasExhausted = computed(() => props.resources && props.resources.some(r =>
   flex-shrink: 0;
 }
 
-.compact-card__exhausted-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background-color: #e03050;
-  animation: pulse-exhausted 1.5s infinite;
-}
-
-@keyframes pulse-exhausted {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
 .compact-card__popover {
   min-width: 280px;
   padding: 4px 0;
@@ -213,7 +191,7 @@ const hasExhausted = computed(() => props.resources && props.resources.some(r =>
 
 @media (max-width: 768px) {
   .compact-card__name {
-    max-width: 45px;
+    min-width: 0;
   }
   .compact-card__dot {
     width: 6px;

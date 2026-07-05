@@ -256,8 +256,30 @@ jobs:
           fi
 
       - name: Deploy to Cloudflare Pages
+        id: deploy
         working-directory: worker
-        run: wrangler pages deploy public/ --project-name "${{ github.event.inputs.project_name }}" --branch main --commit-dirty=true
+        run: |
+          wrangler pages deploy public/ --project-name "${{ github.event.inputs.project_name }}" --branch main --commit-dirty=true
+
+          # 获取 Account ID
+          ACCOUNT_ID=$(wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+
+          # 通过 CF API 查询项目的实际 subdomain（CF 可能会在项目名后追加 -xx 后缀）
+          if [ -n "$ACCOUNT_ID" ]; then
+            PROJECT_DETAILS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/${{ github.event.inputs.project_name }}" \
+              -H "X-Auth-Email: ${{ github.event.inputs.cf_email }}" \
+              -H "X-Auth-Key: ${{ github.event.inputs.cf_api_key }}")
+            echo "Project API response: $PROJECT_DETAILS"
+            PROJECT_SUBDOMAIN=$(echo "$PROJECT_DETAILS" | grep -oP '"subdomain"\s*:\s*"[^"]*"' | grep -oP '(?<="subdomain":")[^"]*' || echo "")
+          fi
+
+          if [ -z "$PROJECT_SUBDOMAIN" ]; then
+            echo "WARNING: 无法获取项目 subdomain，fallback 使用项目名"
+            PROJECT_SUBDOMAIN="${{ github.event.inputs.project_name }}"
+          fi
+
+          echo "实际部署域名: ${PROJECT_SUBDOMAIN}.pages.dev"
+          echo "deploy_url=https://${PROJECT_SUBDOMAIN}.pages.dev/admin/" >> $GITHUB_OUTPUT
 
       - name: Deployment summary
         run: |
@@ -271,4 +293,4 @@ jobs:
           echo "| D1 数据库 | ${{ github.event.inputs.d1_database_name }} (${{ steps.d1.outputs.database_id }}) |" >> $GITHUB_STEP_SUMMARY
           echo "| KV 命名空间 | ${{ github.event.inputs.kv_namespace_name }} (${{ steps.kv.outputs.kv_namespace_id }}) |" >> $GITHUB_STEP_SUMMARY
           echo "| 完全覆盖 | ${{ github.event.inputs.full_wipe }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 访问地址 | https://${{ github.event.inputs.project_name }}.pages.dev/admin/ |" >> $GITHUB_STEP_SUMMARY
+          echo "| 访问地址 | ${{ steps.deploy.outputs.deploy_url }} |" >> $GITHUB_STEP_SUMMARY

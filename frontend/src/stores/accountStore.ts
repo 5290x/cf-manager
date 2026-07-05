@@ -9,7 +9,7 @@ export const useAccountStore = defineStore('accounts', () => {
 
   // 分页/筛选/搜索状态
   const page = ref(1);
-  const pageSize = ref(20);
+  const pageSize = ref(10);
   const filter = ref<'all' | 'active' | 'unverified'>('all');
   const search = ref('');
   const total = ref(0);             // 当前筛选条件下总数

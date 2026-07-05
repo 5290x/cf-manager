@@ -1,12 +1,12 @@
 <template>
-  <div>
+  <div class="page-view">
     <n-h2>浏览器渲染</n-h2>
 
     <!-- 用量统计 (compact) -->
-    <div class="card-grid-scroll">
-    <n-grid v-if="usageList.length > 0" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="margin-bottom: 16px;">
+    <div class="card-grid-scroll" style="width: 100%">
+    <n-grid v-if="usageList.length > 0" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="width: 100%; margin-bottom: 16px;">
       <n-gi v-for="u in usageList" :key="u.accountId">
-        <n-popover trigger="click" placement="bottom">
+        <n-popover trigger="click" placement="bottom" style="display: block; width: 100%;">
           <template #trigger>
             <div class="br-compact-card">
               <span class="br-compact-card__name" :title="u.accountName">{{ u.accountName }}</span>

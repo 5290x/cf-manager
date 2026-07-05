@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-view">
     <n-h2>设置</n-h2>
 
     <n-card title="配置状态" size="small" style="margin-bottom: 16px">

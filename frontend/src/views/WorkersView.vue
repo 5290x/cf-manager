@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-view">
     <n-space justify="space-between" align="center" :wrap="true">
       <n-h2 style="margin: 0">Workers & Pages 管理</n-h2>
       <n-space>
@@ -9,10 +9,10 @@
     </n-space>
 
     <!-- Workers Usage per Account (compact) -->
-    <div class="card-grid-scroll">
-      <n-grid v-if="usageData.length" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="margin-bottom: 12px;">
+      <div class="card-grid-scroll" style="width: 100%">
+      <n-grid v-if="usageData.length" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="width: 100%; margin-bottom: 12px;">
         <n-gi v-for="u in usageData" :key="u.accountId">
-        <n-popover trigger="click" placement="bottom">
+        <n-popover trigger="click" placement="bottom" style="display: block; width: 100%;">
           <template #trigger>
             <div class="worker-compact-card">
               <span class="worker-compact-card__name" :title="u.accountName">{{ u.accountName }}</span>
