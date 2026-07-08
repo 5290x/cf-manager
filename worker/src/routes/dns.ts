@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { getActiveAccountsByFeature, addAuditLog } from '../db/models';
 import { cfFetch, cfFetchAll } from '../services/cfApi';
+import { isDemoAccount } from '../services/demo';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -67,6 +68,9 @@ app.delete('/domains/:domain/records/:id', async (c) => {
   const domain = c.req.param('domain');
   const recordId = c.req.param('id');
   const { account, zoneId } = await findAccountByDomain(c.env.DB, domain, c.env.ENCRYPTION_KEY);
+  if (isDemoAccount(account.id, c.env.DEMO_ACCOUNT_IDS)) {
+    return c.json({ error: { code: 'DEMO_PROTECTED', message: '演示账户不可删除 DNS 记录' } }, 403);
+  }
   await cfFetch(account, `/zones/${zoneId}/dns_records/${recordId}`, c.env.ENCRYPTION_KEY, { method: 'DELETE' });
   await addAuditLog(c.env.DB, { account_id: account.id, action: 'delete_dns', target: domain, detail: `record_id=${recordId}`, status: 'success' });
   return c.json({ success: true });
