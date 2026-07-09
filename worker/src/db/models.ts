@@ -351,5 +351,8 @@ export async function ensureDefaultCatalogSource(db: D1Database, url: string, na
     await db.prepare(
       'INSERT INTO catalog_sources (url, name, is_default) VALUES (?, ?, 1)'
     ).bind(url, name).run();
+  } else if (existing.url !== url || existing.name !== name) {
+    // 代码常量已变更（如迁移到新仓库），同步修正已存在的默认源地址
+    await updateCatalogSource(db, existing.id, { url, name });
   }
 }

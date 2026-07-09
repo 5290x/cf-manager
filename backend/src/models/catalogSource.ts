@@ -58,5 +58,8 @@ export function ensureDefaultCatalogSource(url: string, name: string): void {
   const existing = getDefaultCatalogSource();
   if (!existing) {
     getDb().prepare('INSERT INTO catalog_sources (url, name, is_default) VALUES (?, ?, 1)').run(url, name);
+  } else if (existing.url !== url || existing.name !== name) {
+    // 代码常量已变更（如迁移到新仓库），同步修正已存在的默认源地址
+    updateCatalogSource(existing.id, { url, name });
   }
 }

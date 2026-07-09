@@ -130,7 +130,7 @@
     <!-- Catalog Sources -->
     <n-card title="Catalog 源管理" size="small" style="margin-bottom: 16px">
       <template #header-extra>
-        <n-button size="small" type="primary" @click="showAddSource = true">添加源</n-button>
+        <n-button size="small" type="primary" @click="openAddSource">添加源</n-button>
       </template>
       <n-spin :show="sourceLoading">
         <n-list hoverable>
@@ -151,6 +151,7 @@
               </div>
               <n-space>
                 <n-button size="tiny" @click="toggleSource(s)">{{ s.enabled ? '禁用' : '启用' }}</n-button>
+                <n-button v-if="!s.is_default" size="tiny" @click="openEditSource(s)">编辑</n-button>
                 <n-button v-if="!s.is_default" size="tiny" type="error" quaternary @click="deleteSource(s)">删除</n-button>
               </n-space>
             </div>
@@ -164,7 +165,14 @@
     <n-modal v-model:show="showAddSource" preset="card" title="添加 Catalog 源" style="width: 400px; max-width: 95vw">
       <n-form label-placement="top" size="small">
         <n-form-item label="URL" required>
-          <n-input v-model:value="newSourceUrl" placeholder="https://..." />
+          <n-input-group>
+            <n-input v-model:value="newSourceUrl" placeholder="https://..." clearable @keyup.enter="() => testSource(newSourceUrl)" />
+            <n-button :loading="testingSource" :disabled="!newSourceUrl" @click="() => testSource(newSourceUrl)">测试</n-button>
+          </n-input-group>
+          <n-text v-if="sourceTestResult" :type="sourceTestResult.ok ? 'success' : 'error'" depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            <template v-if="sourceTestResult.ok">✓ 可用，包含 {{ sourceTestResult.templateCount }} 个模板</template>
+            <template v-else>✗ {{ sourceTestResult.error }}</template>
+          </n-text>
         </n-form-item>
         <n-form-item label="别名" required>
           <n-input v-model:value="newSourceName" placeholder="如：社区源" />
@@ -173,7 +181,32 @@
       <template #footer>
         <n-space justify="end">
           <n-button @click="showAddSource = false">取消</n-button>
-          <n-button type="primary" :loading="addingSource" @click="addSource">添加</n-button>
+          <n-button type="primary" :loading="addingSource" :disabled="!sourceTestResult?.ok" @click="addSource">添加</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <!-- Edit Source Modal -->
+    <n-modal v-model:show="showEditSource" preset="card" title="编辑 Catalog 源" style="width: 400px; max-width: 95vw">
+      <n-form label-placement="top" size="small">
+        <n-form-item label="URL" required>
+          <n-input-group>
+            <n-input v-model:value="editSourceUrl" placeholder="https://..." clearable @keyup.enter="() => testSource(editSourceUrl)" />
+            <n-button :loading="testingSource" :disabled="!editSourceUrl" @click="() => testSource(editSourceUrl)">测试</n-button>
+          </n-input-group>
+          <n-text v-if="sourceTestResult" :type="sourceTestResult.ok ? 'success' : 'error'" depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            <template v-if="sourceTestResult.ok">✓ 可用，包含 {{ sourceTestResult.templateCount }} 个模板</template>
+            <template v-else>✗ {{ sourceTestResult.error }}</template>
+          </n-text>
+        </n-form-item>
+        <n-form-item label="别名" required>
+          <n-input v-model:value="editSourceName" placeholder="如：社区源" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showEditSource = false">取消</n-button>
+          <n-button type="primary" :loading="editingSource" :disabled="!editCanSave" @click="saveEditSource">保存</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -430,6 +463,21 @@ const showAddSource = ref(false);
 const newSourceUrl = ref('');
 const newSourceName = ref('');
 const addingSource = ref(false);
+const testingSource = ref(false);
+const sourceTestResult = ref<{ ok: boolean; templateCount?: number; error?: string } | null>(null);
+
+// Edit source state
+const showEditSource = ref(false);
+const editingSource = ref(false);
+const editSourceId = ref<number | null>(null);
+const editSourceUrl = ref('');
+const editSourceName = ref('');
+const editSourceOriginalUrl = ref('');
+
+const editUrlChanged = computed(() => editSourceUrl.value !== editSourceOriginalUrl.value);
+const editCanSave = computed(() =>
+  !!editSourceName.value && (!editUrlChanged.value || !!sourceTestResult.value?.ok) && !editingSource.value
+);
 
 async function loadSources() {
   sourceLoading.value = true;
@@ -438,6 +486,40 @@ async function loadSources() {
     catalogSources.value = data as any[];
   } catch {} finally {
     sourceLoading.value = false;
+  }
+}
+
+function openAddSource() {
+  showAddSource.value = true;
+  newSourceUrl.value = '';
+  newSourceName.value = '';
+  sourceTestResult.value = null;
+}
+
+function openEditSource(s: any) {
+  showEditSource.value = true;
+  editSourceId.value = s.id;
+  editSourceUrl.value = s.url;
+  editSourceOriginalUrl.value = s.url;
+  editSourceName.value = s.name;
+  sourceTestResult.value = null;
+}
+
+async function testSource(targetUrl: string) {
+  if (!targetUrl) return;
+  testingSource.value = true;
+  sourceTestResult.value = null;
+  try {
+    const { data } = await storeApi.testSource(targetUrl);
+    sourceTestResult.value = data;
+    if (data.ok) message.success(`可用，包含 ${data.templateCount} 个模板`);
+    else message.error(`测试失败：${data.error}`);
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || err?.message || '测试失败';
+    sourceTestResult.value = { ok: false, error: typeof msg === 'string' ? msg : JSON.stringify(msg) };
+    message.error(`测试失败：${sourceTestResult.value.error}`);
+  } finally {
+    testingSource.value = false;
   }
 }
 
@@ -450,9 +532,24 @@ async function addSource() {
     showAddSource.value = false;
     newSourceUrl.value = '';
     newSourceName.value = '';
+    sourceTestResult.value = null;
     await loadSources();
   } catch {} finally {
     addingSource.value = false;
+  }
+}
+
+async function saveEditSource() {
+  if (editSourceId.value == null) return;
+  editingSource.value = true;
+  try {
+    await storeApi.updateSource(editSourceId.value, { url: editSourceUrl.value, name: editSourceName.value });
+    message.success('已保存');
+    showEditSource.value = false;
+    sourceTestResult.value = null;
+    await loadSources();
+  } catch {} finally {
+    editingSource.value = false;
   }
 }
 

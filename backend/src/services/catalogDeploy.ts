@@ -1,9 +1,11 @@
 import { Account } from '../models/account';
-import { getCfClient, getAuthHeaders } from './cfFactory';
+import { getCfClient } from './cfFactory';
 import { proxyFetch } from './proxyService';
 import { createAuditLog } from '../models/auditLog';
 import type { CatalogTemplate, CatalogBinding } from './catalogValidator';
 import { appLogger } from './logger';
+import AdmZip from 'adm-zip';
+import { deployWorker, deployPages } from './workerService';
 
 export interface DeployOptions {
   account: Account;
@@ -11,6 +13,7 @@ export interface DeployOptions {
   name: string;
   bindingSelections: Record<string, { mode: 'auto' | 'existing'; existingId?: string; runInitSql?: boolean }>;
   secretValues: Record<string, string>;
+  deployType?: 'worker' | 'pages' | 'both';
 }
 
 interface ResolvedBinding {
@@ -33,7 +36,6 @@ interface DeployResult {
 }
 
 const MAX_DOWNLOAD = 50 * 1024 * 1024;
-const CF_BASE = 'https://api.cloudflare.com/client/v4';
 
 async function downloadArtifact(url: string, type: 'worker' | 'pages'): Promise<Buffer> {
   const resp = await proxyFetch(url, {}, 30000);
@@ -49,19 +51,6 @@ async function downloadArtifact(url: string, type: 'worker' | 'pages'): Promise<
   }
 
   return buffer;
-}
-
-async function cfRest(account: Account, path: string, init?: RequestInit): Promise<any> {
-  const headers = getAuthHeaders(account);
-  const resp = await fetch(`${CF_BASE}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...headers, ...(init?.headers as any || {}) },
-  });
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw Object.assign(new Error(`CF API ${resp.status}: ${body}`), { status: resp.status, body });
-  }
-  return resp.json();
 }
 
 async function resolveBinding(
@@ -172,16 +161,137 @@ async function rollback(account: Account, bindings: ResolvedBinding[], workerNam
   return errors;
 }
 
+// --- Deploy helpers (refactored for hybrid reuse) ---
+
+async function deployPagesArtifact(
+  account: Account, accountId: string, name: string, content: Buffer,
+  template: CatalogTemplate, resolvedBindings: ResolvedBinding[],
+): Promise<string> {
+  const cf = getCfClient(account);
+
+  // 1. Create project if not exists
+  try {
+    await cf.pages.projects.create({ account_id: accountId, name, production_branch: 'main' } as any);
+  } catch (e: any) {
+    if (e?.status !== 409) throw e;
+  }
+
+  // 2. Set deployment_configs (bindings + env vars) BEFORE deploying
+  //    This ensures the first deployment has the correct bindings available.
+  //    Only set if there are actual bindings or env vars (empty arrays cause API 400 errors).
+  const prodConfigs: any = {};
+  const previewConfigs: any = {};
+
+  // Add env vars from template.env
+  if (template.env && Object.keys(template.env).length > 0) {
+    prodConfigs.env_vars = {};
+    previewConfigs.env_vars = {};
+    for (const [k, v] of Object.entries(template.env)) {
+      prodConfigs.env_vars[k] = { value: v };
+      previewConfigs.env_vars[k] = { value: v };
+    }
+  }
+
+  // Convert resolved bindings from Worker format to Pages deployment_configs format
+  // Worker: { type: 'kv_namespace', name: 'XXX', namespace_id: 'yyy' }
+  // Pages:  { binding: 'XXX', namespace_id: 'yyy' }
+  const hasResourceBindings = resolvedBindings.some(rb => ['kv', 'd1', 'r2'].includes(rb.type));
+  if (hasResourceBindings) {
+    prodConfigs.kv_namespaces = [];
+    prodConfigs.d1_databases = [];
+    prodConfigs.r2_buckets = [];
+    previewConfigs.kv_namespaces = [];
+    previewConfigs.d1_databases = [];
+    previewConfigs.r2_buckets = [];
+  }
+
+  for (const rb of resolvedBindings) {
+    const b = rb.cfBinding as any;
+    switch (rb.type) {
+      case 'kv': {
+        const entry = { binding: b.name, namespace_id: b.namespace_id };
+        prodConfigs.kv_namespaces.push(entry);
+        previewConfigs.kv_namespaces.push(entry);
+        break;
+      }
+      case 'd1': {
+        // Worker uses 'id', Pages uses 'database_id'
+        const entry = { binding: b.name, database_id: b.id };
+        prodConfigs.d1_databases.push(entry);
+        previewConfigs.d1_databases.push(entry);
+        break;
+      }
+      case 'r2': {
+        const entry = { binding: b.name, bucket_name: b.bucket_name };
+        prodConfigs.r2_buckets.push(entry);
+        previewConfigs.r2_buckets.push(entry);
+        break;
+      }
+      case 'var': {
+        // secret_text → env_vars
+        if (!prodConfigs.env_vars) prodConfigs.env_vars = {};
+        if (!previewConfigs.env_vars) previewConfigs.env_vars = {};
+        prodConfigs.env_vars[b.name] = { value: b.text };
+        previewConfigs.env_vars[b.name] = { value: b.text };
+        break;
+      }
+      case 'ai': {
+        prodConfigs.ai = { binding: b.name };
+        previewConfigs.ai = { binding: b.name };
+        break;
+      }
+    }
+  }
+
+  // Only set deployment_configs if there's something to set
+  const hasConfigs = Object.keys(prodConfigs).length > 0;
+  if (hasConfigs) {
+    try {
+      await cf.pages.projects.edit(name, { account_id: accountId, deployment_configs: { production: prodConfigs, preview: previewConfigs } } as any);
+      appLogger.info(`[Store] Pages deployment_configs set for ${name}`);
+    } catch (e: any) {
+      appLogger.warn(`[Store] Failed to set deployment_configs for ${name}: ${e.message}`);
+    }
+  }
+
+  // 3. Extract zip to files array
+  const zip = new AdmZip(content);
+  const entries = zip.getEntries().filter(e => !e.isDirectory);
+  const files: Array<{ path: string; buffer: Buffer }> = [];
+  for (const entry of entries) {
+    const filePath = String(entry.entryName).replace(/\\/g, '/').replace(/^\/+/, '');
+    files.push({ path: filePath, buffer: entry.getData() });
+  }
+
+  // 4. Deploy via SDK multipart form upload (handles manifest + file uploads correctly)
+  //    deployPages handles special files like _worker.js, _headers, _redirects, etc.
+  await deployPages(account, name, files, true); // skipCreateProject = true
+
+  // 5. Get actual project subdomain
+  try {
+    const project: any = await cf.pages.projects.get(name, { account_id: accountId });
+    return project?.subdomain || `${name}.pages.dev`;
+  } catch {
+    return `${name}.pages.dev`;
+  }
+}
+
+// --- Main deploy ---
+
 export async function deployTemplate(opts: DeployOptions): Promise<DeployResult> {
-  const { account, template, name, bindingSelections, secretValues } = opts;
+  const { account, template, name, bindingSelections, secretValues, deployType } = opts;
   const warnings: string[] = [];
   const resolvedBindings: ResolvedBinding[] = [];
+  const urls: string[] = [];
 
   try {
-    // Step 1: Download
-    const content = await downloadArtifact(template.source.url, template.type);
+    // Step 1: Determine what to deploy
+    const doWorker = template.type === 'worker'
+      || (template.type === 'hybrid' && (deployType === 'worker' || deployType === 'both' || !deployType));
+    const doPages = template.type === 'pages'
+      || (template.type === 'hybrid' && (deployType === 'pages' || deployType === 'both'));
 
-    // Step 2: Resolve bindings
+    // Step 2: Resolve bindings (once, shared)
     for (const binding of (template.bindings || [])) {
       const selection = bindingSelections[binding.name];
       const resolved = await resolveBinding(account, binding, selection, template.id);
@@ -193,71 +303,35 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       resolvedBindings.push(resolved);
     }
 
-    // Step 3: Deploy
-    const cf = getCfClient(account);
     const accountId = account.account_id!;
+    const cf = getCfClient(account);
 
-    if (template.type === 'worker') {
-      const metadata: any = {
-        main_module: 'worker.js',
-        compatibility_date: '2024-01-01',
+    // Step 3: Deploy worker
+    if (doWorker) {
+      const src = template.type === 'hybrid' ? template.sources?.worker : template.source;
+      if (!src) throw new Error('No worker source configured');
+      const content = await downloadArtifact(src.url, 'worker');
+      const { subdomain: accountSubdomain } = await deployWorker(account, name, content, {
         bindings: resolvedBindings.map(b => b.cfBinding),
-      };
-      if (template.env) {
-        metadata.bindings = [
-          ...metadata.bindings,
-          ...Object.entries(template.env).map(([k, v]) => ({ type: 'plain_text', name: k, text: v })),
-        ];
-      }
-      // Use raw multipart upload to ensure ES Module is recognized
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('worker.js', new Blob([new Uint8Array(content)], { type: 'application/javascript+module' }), 'worker.js');
-      const headers = getAuthHeaders(account);
-      const resp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
-        method: 'PUT',
-        headers,
-        body: form,
+        env: template.env,
+        createDeployment: true,
+        deploymentAnnotation: { 'cf-manager/store': template.id },
       });
-      const respJson = await resp.json() as any;
-      if (!resp.ok || !respJson.success) {
-        throw new Error(`${resp.status} ${JSON.stringify(respJson)}`);
-      }
-    } else {
-      // Pages
-      try {
-        await cf.pages.projects.create({ account_id: accountId, name, production_branch: 'main' } as any);
-      } catch (e: any) {
-        if (e?.status !== 409) throw e;
-      }
-
-      // Deploy via API (SDK doesn't support direct file upload well)
-      const headers = getAuthHeaders(account);
-      const form = new FormData();
-      form.append('file', new Blob([new Uint8Array(content)], { type: 'application/zip' }), 'dist.zip');
-      const resp = await fetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}/deployments`, {
-        method: 'POST', headers, body: form,
-      });
-      if (!resp.ok) throw new Error(`Pages deploy failed: ${await resp.text()}`);
-
-      // Set env + bindings
-      if (template.env || template.bindings) {
-        const deploymentConfigs: any = { production: { env_vars: {}, kv_namespaces: [], d1_databases: [], r2_buckets: [] } };
-        if (template.env) {
-          for (const [k, v] of Object.entries(template.env)) {
-            deploymentConfigs.production.env_vars[k] = { value: v };
-          }
-        }
-        for (const rb of resolvedBindings) {
-          if (rb.type === 'kv') deploymentConfigs.production.kv_namespaces.push(rb.cfBinding);
-          if (rb.type === 'd1') deploymentConfigs.production.d1_databases.push(rb.cfBinding);
-          if (rb.type === 'r2') deploymentConfigs.production.r2_buckets.push(rb.cfBinding);
-        }
-        await cf.pages.projects.edit(name, { account_id: accountId, deployment_configs: deploymentConfigs } as any);
-      }
+      urls.push(accountSubdomain ? `https://${name}.${accountSubdomain}.workers.dev` : `https://${name}.workers.dev`);
+      appLogger.info(`[Store] Worker deployed: ${name}`);
     }
 
-    // Step 4: Routes (soft failure)
+    // Step 4: Deploy pages
+    if (doPages) {
+      const src = template.type === 'hybrid' ? template.sources?.pages : template.source;
+      if (!src) throw new Error('No pages source configured');
+      const content = await downloadArtifact(src.url, 'pages');
+      const pagesSubdomain = await deployPagesArtifact(account, accountId, name, content, template, resolvedBindings);
+      urls.push(`https://${pagesSubdomain}`);
+      appLogger.info(`[Store] Pages deployed: ${name} → ${pagesSubdomain}`);
+    }
+
+    // Step 5: Routes (soft failure)
     if (template.routes && template.routes.length > 0) {
       for (const pattern of template.routes) {
         try {
@@ -274,9 +348,7 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
     }
 
     createAuditLog(account.id!, 'store_deploy', name, `template: ${template.id}`, 'success');
-    const url = (template.type === 'worker')
-      ? `https://${name}.workers.dev`
-      : `https://${name}.pages.dev`;
+    const url = urls.join(' | ') || (template.type === 'pages' ? `https://${name}.pages.dev` : `https://${name}.workers.dev`);
     return { success: true, warnings, bindings: resolvedBindings, url };
 
   } catch (e: any) {

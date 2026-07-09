@@ -8,7 +8,13 @@ import { deployTemplate } from '../services/catalogDeploy';
 import { getAccountById } from '../models/account';
 import { appLogger } from '../services/logger';
 
-const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/hefeiyu/cf-manager-catalog/main/catalog.json';
+const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/hefy2027/cf-store/main/catalog.json';
+// 官方源备用地址：主地址不可达时按顺序尝试（常用于 GitHub raw 被限流/不可达时的镜像）
+const DEFAULT_CATALOG_FALLBACK_URLS = [
+  'https://cdn.jsdelivr.net/gh/hefy2027/cf-store@main/catalog.json',
+  'https://cf-store.surge.sh/catalog.json',
+];
+const DEFAULT_CATALOG_URLS = [DEFAULT_CATALOG_URL, ...DEFAULT_CATALOG_FALLBACK_URLS];
 const DEFAULT_CATALOG_NAME = '官方源';
 
 const router = Router();
@@ -18,35 +24,74 @@ const catalogCache = new Map<number, Catalog>();
 
 // ============ Source CRUD ============
 
+// 校验某个 URL 是否为可拉取且格式合法的 catalog（供"添加源"创建前校验与独立测试复用）
+interface CatalogUrlTestResult {
+  ok: boolean;
+  status?: number;
+  templateCount?: number;
+  errorCode?: string;
+  error?: string;
+  etag?: string | null;
+  json?: any;
+}
+
+async function testCatalogUrl(url: string): Promise<CatalogUrlTestResult> {
+  const isLocal = url?.startsWith('http://localhost:') || url?.startsWith('http://127.0.0.1:');
+  if (!url || (!url.startsWith('https://') && !isLocal)) {
+    return { ok: false, errorCode: 'VALIDATION_ERROR', error: 'url must be a valid HTTPS URL' };
+  }
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e: any) {
+    return { ok: false, errorCode: 'FETCH_ERROR', error: `无法连接: ${e.message}` };
+  }
+  if (!resp.ok) {
+    return { ok: false, status: resp.status, errorCode: 'FETCH_ERROR', error: `URL 不可达: HTTP ${resp.status}` };
+  }
+  let json: any;
+  try {
+    json = await resp.json();
+  } catch (e: any) {
+    return { ok: false, errorCode: 'PARSE_ERROR', error: `不是合法 JSON: ${e.message}` };
+  }
+  const result = validateCatalog(json);
+  if (!result.valid) {
+    return { ok: false, errorCode: 'INVALID_CATALOG', error: `不是有效的 catalog: ${result.errors.join('; ')}` };
+  }
+  return { ok: true, templateCount: Array.isArray(json.templates) ? json.templates.length : 0, etag: resp.headers.get('etag'), json };
+}
+
 router.get('/sources', (_req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(getCatalogSources());
   } catch (err) { next(err); }
 });
 
+// 独立测试接口：验证 URL 是否可拉取且符合 catalog 格式（不落库）
+router.post('/sources/test', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { url } = req.body;
+    const result = await testCatalogUrl(url);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
 router.post('/sources', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { url, name } = req.body;
-    if (!url || !url.startsWith('https://')) {
-      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'url must be a valid HTTPS URL' } });
-      return;
-    }
     if (!name) {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name is required' } });
       return;
     }
-    const resp = await fetch(url);
-    if (!resp.ok) { res.status(400).json({ error: { code: 'FETCH_ERROR', message: `URL 不可达: ${resp.status}` } }); return; }
-    const json: Catalog = await resp.json() as Catalog;
-    const result = validateCatalog(json);
-    if (!result.valid) {
-      res.status(400).json({ error: { code: 'INVALID_CATALOG', message: `不是有效的 catalog: ${result.errors.join('; ')}` } });
+    const test = await testCatalogUrl(url);
+    if (!test.ok) {
+      res.status(400).json({ error: { code: test.errorCode || 'FETCH_ERROR', message: test.error } });
       return;
     }
     const id = createCatalogSource({ url, name });
-    catalogCache.set(id, json);
-    const etag = resp.headers.get('etag') as string | null;
-    if (etag) updateCatalogSource(id, { etag, last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
+    catalogCache.set(id, test.json as Catalog);
+    if (test.etag) updateCatalogSource(id, { etag: test.etag, last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
     res.status(201).json({ id });
   } catch (err) { next(err); }
 });
@@ -102,33 +147,46 @@ async function fetchSourceCatalog(source: any): Promise<Catalog | null> {
   return refreshSource(source);
 }
 
+// 官方默认源启用 fallback 链；用户自定义源只使用自己的 url
+function candidateUrls(source: any): string[] {
+  return source.is_default ? DEFAULT_CATALOG_URLS : [source.url];
+}
+
 async function refreshSource(source: any): Promise<Catalog | null> {
-  try {
-    const headers: Record<string, string> = {};
-    if (source.etag) headers['If-None-Match'] = source.etag;
-    const resp = await fetch(source.url, { headers });
-    if (resp.status === 304) {
-      updateCatalogSource(source.id, { last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
-      return catalogCache.get(source.id) || null;
+  const urls = candidateUrls(source);
+  let lastError = '';
+  for (const url of urls) {
+    try {
+      const headers: Record<string, string> = {};
+      // etag 仅对主记录 url 携带，避免跨地址 etag 误判
+      if (url === source.url && source.etag) headers['If-None-Match'] = source.etag;
+      const resp = await fetch(url, { headers });
+
+      if (resp.status === 304) {
+        updateCatalogSource(source.id, { last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
+        return catalogCache.get(source.id) || null;
+      }
+      if (!resp.ok) {
+        lastError = `HTTP ${resp.status} (${url})`;
+        continue;
+      }
+      const json: Catalog = await resp.json() as Catalog;
+      const result = validateCatalog(json);
+      if (!result.valid) {
+        lastError = `Schema invalid: ${result.errors.slice(0, 3).join('; ')} (${url})`;
+        continue;
+      }
+      catalogCache.set(source.id, json);
+      const etag = resp.headers.get('etag') as string | null;
+      updateCatalogSource(source.id, { etag: etag || null, last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
+      return json;
+    } catch (e: any) {
+      lastError = `${e.message} (${url})`;
+      continue;
     }
-    if (!resp.ok) {
-      updateCatalogSource(source.id, { last_status: 'error', last_error: `HTTP ${resp.status}` });
-      return catalogCache.get(source.id) || null;
-    }
-    const json: Catalog = await resp.json() as Catalog;
-    const result = validateCatalog(json);
-    if (!result.valid) {
-      updateCatalogSource(source.id, { last_status: 'error', last_error: `Schema invalid: ${result.errors.slice(0, 3).join('; ')}` });
-      return catalogCache.get(source.id) || null;
-    }
-    catalogCache.set(source.id, json);
-    const etag = resp.headers.get('etag') as string | null;
-    updateCatalogSource(source.id, { etag: etag || null, last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
-    return json;
-  } catch (e: any) {
-    updateCatalogSource(source.id, { last_status: 'error', last_error: e.message });
-    return catalogCache.get(source.id) || null;
   }
+  updateCatalogSource(source.id, { last_status: 'error', last_error: lastError });
+  return catalogCache.get(source.id) || null;
 }
 
 async function refreshSourceInBackground(source: any): Promise<void> {
@@ -194,7 +252,7 @@ router.get('/init', (_req: Request, res: Response) => {
 
 router.post('/deploy', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { accountId, templateId, name, bindingSelections, secretValues } = req.body;
+    const { accountId, templateId, name, bindingSelections, secretValues, deployType } = req.body;
     if (!accountId || !templateId || !name) {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'accountId, templateId, name are required' } });
       return;
@@ -217,6 +275,7 @@ router.post('/deploy', async (req: Request, res: Response, next: NextFunction) =
       account, template, name,
       bindingSelections: bindingSelections || {},
       secretValues: secretValues || {},
+      deployType: deployType || undefined,
     });
     res.status(result.success ? 200 : 500).json(result);
   } catch (err) { next(err); }

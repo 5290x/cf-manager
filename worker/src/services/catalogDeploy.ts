@@ -1,6 +1,7 @@
 import type { Account } from '../db/models';
 import { cfFetch, cfFetchRaw, cfFetchAll } from './cfApi';
 import type { CatalogTemplate, CatalogBinding } from './catalogValidator';
+import { deployPages, extractZipFiles } from './pagesDeploy';
 import { addAuditLog } from '../db/models';
 
 export interface DeployOptions {
@@ -243,16 +244,7 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         if (!e.body?.includes('already exists') && e.status !== 409) throw e;
       }
 
-      // Upload zip as deployment
-      const form = new FormData();
-      form.append('file', new Blob([content], { type: 'application/zip' }), 'dist.zip');
-      const resp = await cfFetchRaw(account, `/accounts/${account.account_id}/pages/projects/${name}/deployments`, encryptionKey, {
-        method: 'POST', body: form,
-      });
-      const deployResult = await resp.json();
-      const url = (deployResult as any).result?.url;
-
-      // Set env and bindings via project PATCH
+      // Set env and bindings via project PATCH（在首次部署前完成，与 backend store 一致）
       if (template.env || template.bindings) {
         const deploymentConfigs: any = { production: { env_vars: {}, kv_namespaces: [], d1_databases: [], r2_buckets: [] } };
         if (template.env) {
@@ -270,13 +262,9 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         });
       }
 
-      // Set secrets for var bindings
-      for (const binding of (template.bindings || [])) {
-        if (binding.type === 'var' && binding.action === 'prompt' && secretValues[binding.name]) {
-          // Pages secrets are set via env_vars with type secret
-          // This is handled in deployment_configs above as plain_text for now
-        }
-      }
+      // 解包 zip 后逐文件 + manifest + BLAKE3 + "/" 上传，与 backend store 机制完全一致
+      const files = await extractZipFiles(content);
+      await deployPages(account, encryptionKey, name, files, { skipCreateProject: true });
     }
 
     // Step 4: Routes (soft failure)
