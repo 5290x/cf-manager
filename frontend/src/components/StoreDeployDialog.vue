@@ -155,8 +155,11 @@ function onBindingSelect(binding: any, value: string) {
 
 async function onAccountChange() {
   if (!form.value.accountId) return;
-  const types = ['kv', 'd1', 'r2'];
-  for (const type of types) {
+  // 只拉取当前模板实际用到的资源类型，避免对未开通 R2 的账号无谓调用 R2 API 而误报 “R2 is not enabled”
+  const neededTypes = (Array.from(new Set((props.template?.bindings || []).map((b: any) => b.type))))
+    .filter((t: any) => t === 'kv' || t === 'd1' || t === 'r2') as ('kv' | 'd1' | 'r2')[];
+  if (neededTypes.length === 0) return;
+  for (const type of neededTypes) {
     resourceLoading.value[type] = true;
     try {
       if (type === 'kv') {
@@ -166,7 +169,7 @@ async function onAccountChange() {
         const { data } = await workersApi.getD1Databases(form.value.accountId);
         existingResources.value.d1 = data as any[];
       } else if (type === 'r2') {
-        const { data } = await workersApi.getR2Buckets(form.value.accountId);
+        const { data } = await workersApi.getR2Buckets(form.value.accountId, { _silent: true });
         existingResources.value.r2 = data as any[];
       }
     } catch (e: any) {
