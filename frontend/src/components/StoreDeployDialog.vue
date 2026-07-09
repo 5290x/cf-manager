@@ -12,6 +12,15 @@
           <n-input v-model:value="form.name" placeholder="输入名称" />
         </n-form-item>
 
+        <!-- Deploy type (hybrid only) -->
+        <n-form-item v-if="template.type === 'hybrid'" label="部署方式" required>
+          <n-radio-group v-model:value="deployType">
+            <n-radio-button value="both">Worker + Pages</n-radio-button>
+            <n-radio-button value="worker">仅 Worker</n-radio-button>
+            <n-radio-button value="pages">仅 Pages</n-radio-button>
+          </n-radio-group>
+        </n-form-item>
+
         <!-- Bindings -->
         <template v-if="template.bindings?.length">
           <n-divider>绑定资源</n-divider>
@@ -81,6 +90,7 @@ const visible = computed({
 });
 
 const deploying = ref(false);
+const deployType = ref<'worker' | 'pages' | 'both'>('both');
 const accounts = ref<any[]>([]);
 const form = ref({ accountId: null as number | null, name: '' });
 const bindingSelections = ref<Record<string, { value: string; mode: 'auto' | 'existing'; existingId?: string; runInitSql: boolean }>>({});
@@ -174,6 +184,7 @@ async function handleDeploy() {
       name: form.value.name,
       bindingSelections: selections,
       secretValues: secretValues.value,
+      deployType: props.template.type === 'hybrid' ? deployType.value : undefined,
     });
 
     emit('deployed', result);
