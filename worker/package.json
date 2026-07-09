@@ -10,10 +10,10 @@
     "db:init": "wrangler d1 execute cf-manager --file=src/db/schema.sql --remote"
   },
   "dependencies": {
+    "@noble/hashes": "^1.5.0",
     "ajv": "^8.20.0",
     "ajv-errors": "^3.0.0",
     "ajv-formats": "^3.0.1",
-    "hash-wasm": "^4.12.0",
     "hono": "^4"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import type { Account } from '../db/models';
-import { blake3 } from 'hash-wasm';
+import { blake3 } from '@noble/hashes/blake3';
 import { cfFetch, cfFetchRaw } from './cfApi';
 
 // 演示/特殊文件：不进 manifest，单独作为 multipart 字段上传
@@ -90,11 +90,22 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i].toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
 export async function computePageAssetHash(buffer: Uint8Array, filePath: string): Promise<string> {
   const base64Contents = uint8ToBase64(buffer);
   const extension = pageAssetExtname(filePath).substring(1);
-  const fullHash = await blake3(base64Contents + extension);
-  return fullHash.slice(0, 32);
+  // 纯 JS BLAKE3：输入与 backend（hash-wasm blake3）完全一致 = UTF-8(base64(content) + extension)
+  const input = new TextEncoder().encode(base64Contents + extension);
+  const hashBytes = blake3(input);
+  // 与 backend 一致：取完整 BLAKE3 哈希的前 32 个 hex 字符（= 前 16 字节）
+  return bytesToHex(hashBytes.slice(0, 16));
 }
 
 // ============ 统一 Pages 部署入口 ============
