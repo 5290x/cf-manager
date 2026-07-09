@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.1] - 2026-07-09
+
+### 🐛 修复
+
+- **Catalog 校验器运行时报错**：`catalogValidator` 改为 ajv **standalone 预编译**，消除 Workers/Pages 运行时调用 `new Function`（被 CF Workers 运行时禁止）导致的校验失败；backend Docker 构建生成校验器时显式指定 `CATALOG_SCHEMA_PATH`，确保 schema 路径正确（27bfb26、bd2deeb）。
+- **默认 catalog 主源切换**：官方默认源主地址改为 `surge.sh`（更新即时生效，规避 jsDelivr 缓存 GitHub 主分支导致的延迟），fallback 链调整为 `surge.sh → jsDelivr → GitHub raw`；**worker 端同步**主源配置（d8faeab、6d440d2）。
+- **Catalog schema 扩展**：schema 顶层允许 `mirrorOf` / `description` 等镜像元数据字段；binding 新增 `secret` 布尔字段（仅 `type:var` 生效）——`true`/缺省按加密 `secret_text` 写入（前端密码框），`false` 按明文 `plain_text` 写入（前端普通文本框）（43e6521、e81bae2）。
+- **Pages 端变量类型丢失**：Worker 与 backend 在写入 Pages `deployment_configs.env_vars` 时保留 `cfBinding.type`（`secret_text`/`plain_text`），修复此前只写 `{ value }` 导致变量被强制退化为明文、与 Worker 端行为不一致的问题（e81bae2）。
+- **Hybrid 部署误删 Worker**：修复 hybrid 模板在 **Pages 环节失败**（如产物下载 429/超时）时，`rollback` 会**无条件删除已部署成功的 Worker** 的连坐 bug；现仅回滚本轮未成功部署的部分。同时部署失败时补充 `appLogger.error` 输出真实报错到控制台（e81bae2）。
+- **Worker 端 hybrid 部署崩溃**：worker 端 `catalogDeploy` 此前只读取 `template.source.url` 且完全没有 `hybrid` 分支，部署 `hybrid-demo` / `edgetunnel` 等 hybrid 模板时 `template.source` 为 `undefined`，抛 `Cannot read properties of undefined (reading 'url')`；现已重构支持 hybrid（按 `template.type` 分别下载 `sources.worker` / `sources.pages` 并部署），补全部署后 URL 返回，并为 `rollback` 增加 `deleteWorker` 保护（与 backend 一致，避免 hybrid 一处失败连坐删除成功部分）。
+
+### 🎨 前端
+
+- **部署对话框区分密钥与配置项**：`StoreDeployDialog` 将 `secret !== false` 的 var 归为「需要填写的密钥」（密码框），`secret === false` 的 var 归为「需要填写的配置项」（普通文本框），并纳入部署校验（e81bae2）。
+
+---
+
 ## [1.3.0] - 2026-07-09
 
 ### 🚀 新特性

@@ -12,6 +12,7 @@ export interface DeployOptions {
   bindingSelections: Record<string, { mode: 'auto' | 'existing'; existingId?: string; runInitSql?: boolean }>;
   secretValues: Record<string, string>;  // for var/prompt bindings
   db?: D1Database;           // for audit log
+  deployType?: 'worker' | 'pages' | 'both';
 }
 
 interface ResolvedBinding {
@@ -174,7 +175,7 @@ async function executeInitSql(account: Account, encryptionKey: string, dbId: str
   });
 }
 
-async function rollback(account: Account, encryptionKey: string, bindings: ResolvedBinding[], workerName?: string): Promise<string[]> {
+async function rollback(account: Account, encryptionKey: string, bindings: ResolvedBinding[], workerName?: string, deleteWorker: boolean = true): Promise<string[]> {
   const errors: string[] = [];
   // Delete created resources in reverse order
   for (const b of [...bindings].reverse()) {
@@ -191,8 +192,8 @@ async function rollback(account: Account, encryptionKey: string, bindings: Resol
       errors.push(`${b.resourceType}:${b.resourceId} - ${e.message}`);
     }
   }
-  // Delete partially uploaded worker/pages
-  if (workerName) {
+  // 仅当 Worker 本身未成功部署时才删除；hybrid 若只是 Pages 环节失败，已部署的 Worker 应保留
+  if (workerName && deleteWorker) {
     try {
       await cfFetch(account, `/accounts/${account.account_id}/workers/scripts/${workerName}`, encryptionKey, { method: 'DELETE' });
     } catch {}
@@ -200,16 +201,23 @@ async function rollback(account: Account, encryptionKey: string, bindings: Resol
   return errors;
 }
 
+// 获取账号的 Worker 子域，用于拼接部署后的 Worker URL
+async function getWorkerSubdomain(account: Account, encryptionKey: string): Promise<string | null> {
+  try {
+    const r: any = await cfFetch(account, `/accounts/${account.account_id}/workers/subdomain`, encryptionKey);
+    return r?.result?.subdomain || null;
+  } catch { return null; }
+}
+
 export async function deployTemplate(opts: DeployOptions): Promise<DeployResult> {
-  const { account, encryptionKey, template, name, bindingSelections, secretValues } = opts;
+  const { account, encryptionKey, template, name, bindingSelections, secretValues, deployType } = opts;
   const warnings: string[] = [];
   const resolvedBindings: ResolvedBinding[] = [];
+  const urls: string[] = [];
+  let workerDeployed = false;
 
   try {
-    // Step 1: Download artifact
-    const { content } = await downloadArtifact(template.source.url, template.type);
-
-    // Step 2: Resolve bindings
+    // Step 1: Resolve bindings (once, shared between worker & pages)
     for (const binding of (template.bindings || [])) {
       const selection = bindingSelections[binding.name];
       const resolved = await resolveBinding(account, encryptionKey, binding, selection, template.id);
@@ -222,8 +230,18 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       resolvedBindings.push(resolved);
     }
 
-    // Step 3: Deploy main body
-    if (template.type === 'worker') {
+    // Step 2: Determine what to deploy
+    const doWorker = template.type === 'worker'
+      || (template.type === 'hybrid' && (deployType === 'worker' || deployType === 'both' || !deployType));
+    const doPages = template.type === 'pages'
+      || (template.type === 'hybrid' && (deployType === 'pages' || deployType === 'both'));
+
+    // Step 3: Deploy worker
+    if (doWorker) {
+      const src = template.type === 'hybrid' ? template.sources?.worker : template.source;
+      if (!src) throw new Error('No worker source configured');
+      const { content } = await downloadArtifact(src.url, 'worker');
+
       const metadata: Record<string, unknown> = {
         main_module: 'worker.js',
         compatibility_date: '2024-01-01',
@@ -242,8 +260,19 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       await cfFetchRaw(account, `/accounts/${account.account_id}/workers/scripts/${name}`, encryptionKey, {
         method: 'PUT', body: form,
       });
-    } else {
-      // Pages: create project if not exists, then deploy
+
+      const sub = await getWorkerSubdomain(account, encryptionKey);
+      urls.push(sub ? `https://${name}.${sub}.workers.dev` : `https://${name}.workers.dev`);
+      workerDeployed = true;
+    }
+
+    // Step 4: Deploy pages
+    if (doPages) {
+      const src = template.type === 'hybrid' ? template.sources?.pages : template.source;
+      if (!src) throw new Error('No pages source configured');
+      const { content } = await downloadArtifact(src.url, 'pages');
+
+      // Create project if not exists
       try {
         await cfFetch(account, `/accounts/${account.account_id}/pages/projects`, encryptionKey, {
           method: 'POST', body: JSON.stringify({ name, production_branch: 'main' }),
@@ -252,31 +281,80 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         if (!e.body?.includes('already exists') && e.status !== 409) throw e;
       }
 
-      // Set env and bindings via project PATCH（在首次部署前完成，与 backend store 一致）
-      if (template.env || template.bindings) {
-        const deploymentConfigs: any = { production: { env_vars: {}, kv_namespaces: [], d1_databases: [], r2_buckets: [] } };
-        if (template.env) {
-          for (const [k, v] of Object.entries(template.env)) {
-            deploymentConfigs.production.env_vars[k] = { value: v };
+      // Set deployment_configs (bindings + env vars) BEFORE deploying, keep `type` for vars.
+      // Only set if there's something to set (empty arrays cause API 400 errors).
+      const prodConfigs: any = {};
+      const previewConfigs: any = {};
+      if (template.env && Object.keys(template.env).length > 0) {
+        prodConfigs.env_vars = {};
+        previewConfigs.env_vars = {};
+        for (const [k, v] of Object.entries(template.env)) {
+          prodConfigs.env_vars[k] = { value: v };
+          previewConfigs.env_vars[k] = { value: v };
+        }
+      }
+      const hasResourceBindings = resolvedBindings.some(rb => ['kv', 'd1', 'r2'].includes(rb.type));
+      if (hasResourceBindings) {
+        prodConfigs.kv_namespaces = []; prodConfigs.d1_databases = []; prodConfigs.r2_buckets = [];
+        previewConfigs.kv_namespaces = []; previewConfigs.d1_databases = []; previewConfigs.r2_buckets = [];
+      }
+      for (const rb of resolvedBindings) {
+        const b = rb.cfBinding as any;
+        switch (rb.type) {
+          case 'kv': {
+            const entry = { binding: b.name, namespace_id: b.namespace_id };
+            prodConfigs.kv_namespaces.push(entry); previewConfigs.kv_namespaces.push(entry);
+            break;
+          }
+          case 'd1': {
+            const entry = { binding: b.name, database_id: b.id };
+            prodConfigs.d1_databases.push(entry); previewConfigs.d1_databases.push(entry);
+            break;
+          }
+          case 'r2': {
+            const entry = { binding: b.name, bucket_name: b.bucket_name };
+            prodConfigs.r2_buckets.push(entry); previewConfigs.r2_buckets.push(entry);
+            break;
+          }
+          case 'var': {
+            if (!prodConfigs.env_vars) { prodConfigs.env_vars = {}; previewConfigs.env_vars = {}; }
+            prodConfigs.env_vars[b.name] = { value: b.text, type: b.type };
+            previewConfigs.env_vars[b.name] = { value: b.text, type: b.type };
+            break;
+          }
+          case 'ai': {
+            prodConfigs.ai = { binding: b.name };
+            previewConfigs.ai = { binding: b.name };
+            break;
           }
         }
-        for (const rb of resolvedBindings) {
-          if (rb.type === 'kv') deploymentConfigs.production.kv_namespaces.push(rb.cfBinding);
-          if (rb.type === 'd1') deploymentConfigs.production.d1_databases.push(rb.cfBinding);
-          if (rb.type === 'r2') deploymentConfigs.production.r2_buckets.push(rb.cfBinding);
-          if (rb.type === 'var') deploymentConfigs.production.env_vars[rb.name] = { value: rb.cfBinding.text, type: rb.cfBinding.type };
+      }
+      const hasConfigs = Object.keys(prodConfigs).length > 0;
+      if (hasConfigs) {
+        try {
+          await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${name}`, encryptionKey, {
+            method: 'PATCH', body: JSON.stringify({ deployment_configs: { production: prodConfigs, preview: previewConfigs } }),
+          });
+        } catch (e: any) {
+          warnings.push(`Pages deployment_configs 设置失败: ${e.message}`);
         }
-        await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${name}`, encryptionKey, {
-          method: 'PATCH', body: JSON.stringify({ deployment_configs: deploymentConfigs }),
-        });
       }
 
       // 解包 zip 后逐文件 + manifest + BLAKE3 + "/" 上传，与 backend store 机制完全一致
       const files = await extractZipFiles(content);
       await deployPages(account, encryptionKey, name, files, { skipCreateProject: true });
+
+      // Get actual project subdomain
+      try {
+        const project: any = await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${name}`, encryptionKey);
+        const subdomain = project?.result?.subdomain || `${name}.pages.dev`;
+        urls.push(`https://${subdomain}`);
+      } catch {
+        urls.push(`https://${name}.pages.dev`);
+      }
     }
 
-    // Step 4: Routes (soft failure)
+    // Step 5: Routes (soft failure)
     if (template.routes && template.routes.length > 0) {
       for (const pattern of template.routes) {
         try {
@@ -297,7 +375,7 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       }
     }
 
-    // Step 5: Done
+    // Step 6: Done
     if (opts.db) {
       await addAuditLog(opts.db, {
         account_id: account.id, action: 'store_deploy', target: name,
@@ -305,11 +383,19 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       });
     }
 
-    return { success: true, warnings, bindings: resolvedBindings };
+    const url = urls.join(' | ') || (template.type === 'pages' ? `https://${name}.pages.dev` : `https://${name}.workers.dev`);
+    return { success: true, warnings, bindings: resolvedBindings, url };
 
   } catch (e: any) {
-    // Hard failure — rollback
-    const rollbackErrors = await rollback(account, encryptionKey, resolvedBindings, name);
+    // Hard failure — rollback only the parts that were NOT successfully deployed
+    // (hybrid: if only Pages failed, the already-deployed Worker must be preserved)
+    const rollbackErrors = await rollback(account, encryptionKey, resolvedBindings, name, !workerDeployed);
+    if (opts.db) {
+      await addAuditLog(opts.db, {
+        account_id: account.id, action: 'store_deploy', target: name,
+        detail: `error: ${e.message}`, status: 'error',
+      });
+    }
     return {
       success: false, error: e.message, warnings, bindings: resolvedBindings,
       rolledBack: true, rollbackErrors: rollbackErrors.length > 0 ? rollbackErrors : undefined,
