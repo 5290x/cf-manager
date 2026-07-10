@@ -74,6 +74,23 @@ export async function extractZipFiles(zipData: Uint8Array): Promise<Array<{ path
 // ============ BLAKE3 资产哈希（与 backend workerService.computePageAssetHash / wrangler 同款）============
 //   hash = blake3(base64(content) + extension).hex().slice(0, 32)
 // Cloudflare 资产存储按此算法内容寻址，必须与 backend 保持一致，否则运行时按 hash 取内容失败 → 404。
+// 普通 web 资源的 MIME 类型（与 backend getContentType 一致）。
+// Cloudflare Pages 静态托管按扩展名推断响应 Content-Type，上传时带正确类型更稳妥。
+function getContentType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const types: Record<string, string> = {
+    html: 'text/html', htm: 'text/html', css: 'text/css', js: 'application/javascript',
+    mjs: 'application/javascript', json: 'application/json', xml: 'application/xml',
+    txt: 'text/plain', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg',
+    jpeg: 'image/jpeg', gif: 'image/gif', ico: 'image/x-icon', webp: 'image/webp',
+    woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
+    eot: 'application/vnd.ms-fontobject', mp4: 'video/mp4', webm: 'video/webm',
+    mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', pdf: 'application/pdf',
+    wasm: 'application/wasm', map: 'application/json',
+  };
+  return types[ext] || 'application/octet-stream';
+}
+
 function pageAssetExtname(p: string): string {
   const base = p.split('/').pop() ?? '';
   const dot = base.lastIndexOf('.');
@@ -141,7 +158,11 @@ export async function deployPages(
     }
   }
 
-  if (files.length === 0) return null;
+  // 与 backend 一致：空文件时返回 project 对象（而非 null），便于调用方拿到项目信息。
+  if (files.length === 0) {
+    const project = await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${name}`, encryptionKey);
+    return project.result || project;
+  }
 
   const manifest: Record<string, string> = {};
   const deployForm = new FormData();
@@ -157,16 +178,20 @@ export async function deployPages(
       const assetPath = '/' + f.path;
       const hash = await computePageAssetHash(f.buffer, assetPath);
       manifest[assetPath] = hash;
-      deployForm.append(assetPath, new Blob([f.buffer], { type: 'application/octet-stream' }), assetPath);
+      deployForm.append(assetPath, new Blob([f.buffer], { type: getContentType(assetPath) }), assetPath);
     }
   }
 
   deployForm.append('manifest', JSON.stringify(manifest));
   deployForm.append('branch', opts.branch || 'main');
+  // direct upload 必需元数据：告知 Cloudflare 这是直接上传、无需构建。
+  // backend 经官方 SDK 会自动带上这两字段；缺失时 Cloudflare 可能把部署当成需要构建的部署而内部失败，访问即 500。
+  deployForm.append('commit_hash', 'direct-upload');
+  deployForm.append('commit_dirty', 'false');
   deployForm.append('commit_message', opts.commitMessage || 'Deploy via CF Manager');
 
   for (const sf of specialFiles) {
-    deployForm.append(sf.name, new Blob([sf.buffer], { type: 'application/octet-stream' }), sf.name);
+    deployForm.append(sf.name, new Blob([sf.buffer], { type: getContentType(sf.name) }), sf.name);
   }
 
   const resp = await cfFetchRaw(
