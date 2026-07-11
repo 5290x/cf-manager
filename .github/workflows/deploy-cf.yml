@@ -303,13 +303,15 @@ jobs:
             PROJECT_SUBDOMAIN=$(echo "$PROJECT_DETAILS" | jq -r '.result.subdomain // empty')
           fi
 
+          # CF API 返回的 subdomain 已是完整子域名（如 mgrcf.pages.dev），
+          # 无需再拼接 .pages.dev 后缀，否则会出现 mgrcf.pages.dev.pages.dev
           if [ -z "$PROJECT_SUBDOMAIN" ]; then
             echo "WARNING: 无法获取项目 subdomain，fallback 使用项目名"
-            PROJECT_SUBDOMAIN="${{ github.event.inputs.project_name }}"
+            PROJECT_SUBDOMAIN="${{ github.event.inputs.project_name }}.pages.dev"
           fi
 
-          echo "实际部署域名: ${PROJECT_SUBDOMAIN}.pages.dev"
-          echo "deploy_url=https://${PROJECT_SUBDOMAIN}.pages.dev/admin/" >> $GITHUB_OUTPUT
+          echo "实际部署域名: ${PROJECT_SUBDOMAIN}"
+          echo "deploy_url=https://${PROJECT_SUBDOMAIN}/admin/" >> $GITHUB_OUTPUT
 
       - name: Deployment summary
         run: |
