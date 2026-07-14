@@ -50,13 +50,21 @@ jobs:
     runs-on: ubuntu-latest
     # 非交互 CI 下，wrangler 必须通过环境变量认证。
     # 输入的是 Cloudflare Global API Key，对应 wrangler 的 legacy 变量 CLOUDFLARE_API_KEY + CLOUDFLARE_EMAIL。
-    # 将敏感输入提升为 job 级环境变量，后续步骤一律用 $VAR 引用，避免明文出现在回显的脚本里。
-    env:
-      CLOUDFLARE_API_KEY: ${{ github.event.inputs.cf_api_key }}
-      CLOUDFLARE_EMAIL: ${{ github.event.inputs.cf_email }}
-      ENCRYPTION_KEY: ${{ github.event.inputs.encryption_key }}
-      API_SECRET: ${{ github.event.inputs.api_secret }}
+    # 注意：敏感输入绝不能放在 job 级 env —— 否则每个步骤的「env:」头都会把明文打印到日志。
+    # 改为第一步就注册脱敏并写入 $GITHUB_ENV，后续步骤一律用 $VAR 引用（日志中均为 ***）。
     steps:
+      - name: Mask secrets and export to env
+        # 作为第一步注册脱敏，保证 checkout / setup-node 等步骤的 env 头也已被掩码。
+        # 直接引用 github.event.inputs.*，不进 job 级 env；写 $GITHUB_ENV 时重定向到文件，不进 stdout。
+        run: |
+          echo "::add-mask::${{ github.event.inputs.cf_api_key }}"
+          echo "::add-mask::${{ github.event.inputs.cf_email }}"
+          echo "::add-mask::${{ github.event.inputs.encryption_key }}"
+          echo "::add-mask::${{ github.event.inputs.api_secret }}"
+          echo "CLOUDFLARE_API_KEY=${{ github.event.inputs.cf_api_key }}" >> $GITHUB_ENV
+          echo "CLOUDFLARE_EMAIL=${{ github.event.inputs.cf_email }}" >> $GITHUB_ENV
+          echo "ENCRYPTION_KEY=${{ github.event.inputs.encryption_key }}" >> $GITHUB_ENV
+          echo "API_SECRET=${{ github.event.inputs.api_secret }}" >> $GITHUB_ENV
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
@@ -66,28 +74,43 @@ jobs:
       - name: Install wrangler
         run: npm install -g wrangler
 
-      - name: Mask sensitive values in logs
-        # 注册日志脱敏：后续任何步骤即使意外回显这些变量也会被掩码
+      - name: Resolve Cloudflare Account ID
+        # D1 / KV 都是账户级资源；多账户下 wrangler 需要 CLOUDFLARE_ACCOUNT_ID。
+        # 提前解析一次并写入 $GITHUB_ENV，供后续步骤复用（避免重复 whoami）。
         run: |
-          echo "::add-mask::$CLOUDFLARE_API_KEY"
-          echo "::add-mask::$CLOUDFLARE_EMAIL"
-          echo "::add-mask::$ENCRYPTION_KEY"
-          echo "::add-mask::$API_SECRET"
+          ACCOUNT_ID=$(wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+          if [ -z "$ACCOUNT_ID" ]; then
+            echo "WARNING: 无法获取 Account ID（多账户或认证异常），D1/KV 操作可能失败"
+          else
+            echo "Resolved Account ID: $ACCOUNT_ID"
+          fi
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
 
       - name: Setup D1 database
         id: d1
         run: |
           DB_NAME="${{ github.event.inputs.d1_database_name }}"
 
-          # --- 完全覆盖：删除旧数据库 ---
+          # 查询已有数据库（--json + jq 按 name 精确匹配，避免误匹配子串/脆弱的 grep 正则）
+          DB_LIST=$(wrangler d1 list --json 2>/dev/null || echo "[]")
+          echo "$DB_LIST" | jq -r '.[]? | "\(.name)\t\(.uuid // .id)"' 2>/dev/null | head -10 || true
+
+          # --- 完全覆盖：删除旧数据库（按 uuid） ---
           if [ "${{ github.event.inputs.full_wipe }}" = "true" ]; then
             echo "完全覆盖模式：尝试删除旧 D1 数据库..."
-            DB_OLD_ID=$(wrangler d1 list 2>&1 | grep -i "$DB_NAME" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
+            DB_OLD_ID=$(echo "$DB_LIST" | jq -r --arg name "$DB_NAME" '.[]? | select(.name==$name) | (.uuid // .id)' 2>/dev/null | head -1 || echo "")
             if [ -n "$DB_OLD_ID" ]; then
               echo "找到数据库 ID: $DB_OLD_ID，正在删除..."
-              wrangler d1 delete "$DB_NAME" -y 2>&1 || echo "通过名称删除失败，尝试通过 ID..."
-              # 等待删除生效
+              wrangler d1 delete "$DB_OLD_ID" -y 2>&1 || echo "按 ID 删除失败，尝试按名称删除..."
               sleep 3
+              # 删除后确认是否已消失，否则按名称兜底删除
+              DB_LIST2=$(wrangler d1 list --json 2>/dev/null || echo "[]")
+              DB_STILL=$(echo "$DB_LIST2" | jq -r --arg name "$DB_NAME" '.[]? | select(.name==$name) | (.uuid // .id)' 2>/dev/null | head -1 || echo "")
+              if [ -n "$DB_STILL" ]; then
+                echo "按 ID 删除未生效，尝试按名称删除..."
+                wrangler d1 delete "$DB_NAME" -y 2>&1 || echo "删除失败，继续"
+                sleep 2
+              fi
             else
               echo "未在列表中匹配到数据库，尝试按名称删除..."
               wrangler d1 delete "$DB_NAME" -y 2>&1 || echo "数据库可能不存在或已被删除"
@@ -95,16 +118,15 @@ jobs:
             fi
           fi
 
-          # 获取数据库 ID
-          DB_LIST=$(wrangler d1 list 2>&1 || true)
-          echo "$DB_LIST" | head -10
-          DB_ID=$(echo "$DB_LIST" | grep -i "$DB_NAME" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
+          # 重新获取数据库 ID
+          DB_LIST=$(wrangler d1 list --json 2>/dev/null || echo "[]")
+          DB_ID=$(echo "$DB_LIST" | jq -r --arg name "$DB_NAME" '.[]? | select(.name==$name) | (.uuid // .id)' 2>/dev/null | head -1 || echo "")
 
           if [ -z "$DB_ID" ]; then
             echo "Creating D1 database: $DB_NAME"
             wrangler d1 create "$DB_NAME"
-            DB_LIST2=$(wrangler d1 list 2>&1)
-            DB_ID=$(echo "$DB_LIST2" | grep -i "$DB_NAME" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+            DB_LIST2=$(wrangler d1 list --json 2>/dev/null || echo "[]")
+            DB_ID=$(echo "$DB_LIST2" | jq -r --arg name "$DB_NAME" '.[]? | select(.name==$name) | (.uuid // .id)' 2>/dev/null | head -1 || echo "")
             echo "Created database with ID: $DB_ID"
 
             echo "Initializing database schema..."
@@ -138,8 +160,8 @@ jobs:
           API_EMAIL="$CLOUDFLARE_EMAIL"
           ENC_KEY="$ENCRYPTION_KEY"
 
-          # 获取 Account ID
-          ACCOUNT_ID=$(wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+          # 获取 Account ID（复用前面解析的 job 环境变量，避免重复 whoami）
+          ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
           if [ -z "$ACCOUNT_ID" ]; then
             echo "WARNING: 无法获取 Account ID，account_id 将为空"
           fi
@@ -168,13 +190,13 @@ jobs:
         run: |
           KV_NAME="${{ github.event.inputs.kv_namespace_name }}"
 
+          # 查询已有 namespace（--json + jq 按 title 精确匹配，避免误取 preview_id 或其它 namespace）
+          KV_LIST_FULL=$(wrangler kv namespace list --json 2>/dev/null || echo "[]")
+
           # --- 完全覆盖：清空 KV ---
           if [ "${{ github.event.inputs.full_wipe }}" = "true" ]; then
             echo "完全覆盖模式：清空 KV 命名空间..."
-            echo "=== wrangler kv namespace list 输出 ==="
-            KV_LIST_FULL=$(wrangler kv namespace list 2>&1 || true)
-            echo "$KV_LIST_FULL"
-            KV_OLD_ID=$(echo "$KV_LIST_FULL" | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+            KV_OLD_ID=$(echo "$KV_LIST_FULL" | jq -r --arg name "$KV_NAME" '.[]? | select(.title==$name) | .id' 2>/dev/null | head -1 || echo "")
             if [ -n "$KV_OLD_ID" ]; then
               echo "删除旧 KV namespace: $KV_OLD_ID"
               wrangler kv namespace delete --namespace-id "$KV_OLD_ID" -y || true
@@ -183,37 +205,21 @@ jobs:
             else
               echo "未找到同名 KV namespace，跳过删除"
             fi
+            # 删除后重新拉取列表
+            KV_LIST_FULL=$(wrangler kv namespace list --json 2>/dev/null || echo "[]")
           fi
 
-          # 查找已有 namespace 的 ID
           echo "=== 查询已有 KV namespace ==="
-          KV_LIST=$(wrangler kv namespace list 2>&1 || true)
-          echo "$KV_LIST"
+          echo "$KV_LIST_FULL"
 
-          # 尝试从输出中提取 32 位 hex ID（wrangler v4 格式兼容）
-          KV_ID=$(echo "$KV_LIST" | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+          KV_ID=$(echo "$KV_LIST_FULL" | jq -r --arg name "$KV_NAME" '.[]? | select(.title==$name) | .id' 2>/dev/null | head -1 || echo "")
 
           if [ -z "$KV_ID" ]; then
             echo "未找到已有 namespace，尝试创建..."
-            KV_OUTPUT=$(wrangler kv namespace create "$KV_NAME" 2>&1 || true)
-            echo "$KV_OUTPUT"
-
-            if echo "$KV_OUTPUT" | grep -qi "already exists"; then
-              echo "⚠ 提示 namespace 已存在，重新 list 查 ID..."
-              KV_LIST2=$(wrangler kv namespace list 2>&1 || true)
-              echo "$KV_LIST2"
-              KV_ID=$(echo "$KV_LIST2" | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
-            else
-              # 新创建的，从 create 输出中提取 ID
-              KV_ID=$(echo "$KV_OUTPUT" | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
-              # 如果 create 输出没有 ID，可能是以 list 形式展示，重新查询
-              if [ -z "$KV_ID" ]; then
-                echo "create 输出中未找到 ID，重新查询..."
-                KV_LIST3=$(wrangler kv namespace list 2>&1 || true)
-                echo "$KV_LIST3"
-                KV_ID=$(echo "$KV_LIST3" | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
-              fi
-            fi
+            wrangler kv namespace create "$KV_NAME" 2>&1 || true
+            # 创建后重新查询（兼容「已存在」等情况）
+            KV_LIST_FULL=$(wrangler kv namespace list --json 2>/dev/null || echo "[]")
+            KV_ID=$(echo "$KV_LIST_FULL" | jq -r --arg name "$KV_NAME" '.[]? | select(.title==$name) | .id' 2>/dev/null | head -1 || echo "")
           fi
 
           if [ -z "$KV_ID" ]; then
@@ -244,7 +250,8 @@ jobs:
 
       - name: Create Pages project if not exists
         run: |
-          wrangler pages project create "${{ github.event.inputs.project_name }}" --production-branch main 2>/dev/null || echo "Project already exists, skipping creation"
+          # 去掉 2>/dev/null：保留真实错误日志以便排查；已存在时由 || 兜底
+          wrangler pages project create "${{ github.event.inputs.project_name }}" --production-branch main || echo "Project already exists or creation skipped, continuing..."
 
       - name: Configure secrets
         id: secrets
@@ -288,27 +295,30 @@ jobs:
         id: deploy
         working-directory: worker
         run: |
-          wrangler pages deploy public/ --project-name "${{ github.event.inputs.project_name }}" --branch main --commit-dirty=true
+          # 不显式传目录：wrangler.toml 已配置 pages_build_output_dir = "public"
+          wrangler pages deploy --project-name "${{ github.event.inputs.project_name }}" --branch main --commit-dirty
 
-          # 获取 Account ID
-          ACCOUNT_ID=$(wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1 || echo "")
+          # 获取 Account ID（优先复用前面解析的，否则回退 whoami）
+          ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-$(wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1 || echo "")}"
 
-          # 通过 CF API 查询项目的实际 subdomain（CF 可能会在项目名后追加 -xx 后缀）
+          # 通过 CF API 查询项目的实际 subdomain
           if [ -n "$ACCOUNT_ID" ]; then
             PROJECT_DETAILS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/pages/projects/${{ github.event.inputs.project_name }}" \
               -H "X-Auth-Email: $CLOUDFLARE_EMAIL" \
               -H "X-Auth-Key: $CLOUDFLARE_API_KEY")
             echo "Project API response: $PROJECT_DETAILS"
-            # 用 jq 稳健解析 subdomain（ubuntu-latest 自带 jq）
-            PROJECT_SUBDOMAIN=$(echo "$PROJECT_DETAILS" | jq -r '.result.subdomain // empty')
+            # 不同版本 API 的 subdomain 字段可能是前缀(mgrcf)或完整域名(mgrcf.pages.dev)。
+            # 统一处理：去掉末尾多余的 .pages.dev，再拼一次，杜绝 mgrcf.pages.dev.pages.dev 重复。
+            RAW_SUBDOMAIN=$(echo "$PROJECT_DETAILS" | jq -r '.result.subdomain // empty')
+            PROJECT_SUBDOMAIN=$(echo "$RAW_SUBDOMAIN" | sed -E 's#\.pages\.dev/?$##I')
           fi
 
-          # CF API 返回的 subdomain 已是完整子域名（如 mgrcf.pages.dev），
-          # 无需再拼接 .pages.dev 后缀，否则会出现 mgrcf.pages.dev.pages.dev
+          # 兜底：拿不到则使用「项目名」（同样先去尾再拼接）
           if [ -z "$PROJECT_SUBDOMAIN" ]; then
             echo "WARNING: 无法获取项目 subdomain，fallback 使用项目名"
-            PROJECT_SUBDOMAIN="${{ github.event.inputs.project_name }}.pages.dev"
+            PROJECT_SUBDOMAIN="${{ github.event.inputs.project_name }}"
           fi
+          PROJECT_SUBDOMAIN="${PROJECT_SUBDOMAIN}.pages.dev"
 
           echo "实际部署域名: ${PROJECT_SUBDOMAIN}"
           echo "deploy_url=https://${PROJECT_SUBDOMAIN}/admin/" >> $GITHUB_OUTPUT
