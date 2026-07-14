@@ -22,6 +22,9 @@ const DEFAULT_CATALOG_FALLBACK_URLS = [
 const DEFAULT_CATALOG_URLS = [DEFAULT_CATALOG_URL, ...DEFAULT_CATALOG_FALLBACK_URLS];
 const DEFAULT_CATALOG_NAME = '官方源';
 
+// KV 缓存 TTL：6 小时，避免脏数据永久驻留
+const KV_CACHE_TTL = 6 * 60 * 60;
+
 // ============ Source CRUD ============
 
 // 校验某个 URL 是否为可拉取且格式合法的 catalog（供"添加源"创建前校验与独立测试复用）
@@ -78,7 +81,7 @@ app.post('/sources', async (c) => {
   const id = await createCatalogSource(c.env.DB, { url, name });
   // Cache the catalog in KV
   if (c.env.KV) {
-    await c.env.KV.put(`catalog:${id}`, JSON.stringify(test.json));
+    await c.env.KV.put(`catalog:${id}`, JSON.stringify(test.json), { expirationTtl: KV_CACHE_TTL });
   }
   if (test.etag) await updateCatalogSource(c.env.DB, id, { etag: test.etag, last_synced: new Date().toISOString(), last_status: 'ok', last_error: null });
   return c.json({ id }, 201);
@@ -100,7 +103,7 @@ app.put('/sources/:id', async (c) => {
     if (!test.ok) {
       return c.json({ error: { code: test.errorCode || 'FETCH_ERROR', message: test.error } }, 400);
     }
-    if (c.env.KV) await c.env.KV.put(`catalog:${id}`, JSON.stringify(test.json));
+    if (c.env.KV) await c.env.KV.put(`catalog:${id}`, JSON.stringify(test.json), { expirationTtl: KV_CACHE_TTL });
     await updateCatalogSource(c.env.DB, id, {
       ...body, etag: test.etag || null, last_synced: new Date().toISOString(), last_status: 'ok', last_error: null,
     });
@@ -125,6 +128,11 @@ function candidateUrls(source: any): string[] {
 }
 
 async function fetchSourceCatalog(c: any, source: any): Promise<Catalog | null> {
+  return fetchSourceCatalogImpl(c, source, false);
+}
+
+// skipCache=true 时跳过 KV 缓存读取，强制从远程拉取（供 /refresh 使用）
+async function fetchSourceCatalogImpl(c: any, source: any, skipCache: boolean): Promise<Catalog | null> {
   const getCached = async (): Promise<Catalog | null> => {
     if (c.env.KV) {
       const cached = await c.env.KV.get(`catalog:${source.id}`);
@@ -133,9 +141,12 @@ async function fetchSourceCatalog(c: any, source: any): Promise<Catalog | null> 
     return null;
   };
 
-  // Try KV cache first
-  const cached = await getCached();
-  if (cached) return cached;
+  // Try KV cache first (unless force refresh)
+  if (!skipCache) {
+    const cached = await getCached();
+    // 空目录（无模板）不视为有效命中：用户看到空白时应立即重新拉取远程
+    if (cached && cached.templates && cached.templates.length > 0) return cached;
+  }
 
   // Fetch from remote with fallback chain
   const urls = candidateUrls(source);
@@ -170,7 +181,7 @@ async function fetchSourceCatalog(c: any, source: any): Promise<Catalog | null> 
       }
 
       // Cache + update metadata
-      if (c.env.KV) await c.env.KV.put(`catalog:${source.id}`, JSON.stringify(json));
+      if (c.env.KV) await c.env.KV.put(`catalog:${source.id}`, JSON.stringify(json), { expirationTtl: KV_CACHE_TTL });
       const etag = resp.headers.get('etag');
       await updateCatalogSource(c.env.DB, source.id, {
         etag: etag || null, last_synced: new Date().toISOString(),
@@ -232,9 +243,10 @@ app.get('/templates', async (c) => {
 app.post('/refresh', async (c) => {
   const sources = await getEnabledCatalogSources(c.env.DB);
   const results = await Promise.all(sources.map(async (s) => {
-    // Force refresh: clear etag temporarily
+    // Force refresh: clear etag + KV 缓存，确保从远程重新拉取
     if (s.etag) await updateCatalogSource(c.env.DB, s.id, { etag: null });
-    const cat = await fetchSourceCatalog(c, s);
+    if (c.env.KV) await c.env.KV.delete(`catalog:${s.id}`);
+    const cat = await fetchSourceCatalogImpl(c, s, true);
     return { id: s.id, name: s.name, success: !!cat };
   }));
   return c.json(results);
