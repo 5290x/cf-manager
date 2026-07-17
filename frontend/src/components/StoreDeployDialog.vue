@@ -75,6 +75,14 @@
             <n-descriptions-item v-for="(v, k) in template.env" :key="k" :label="k">{{ v }}</n-descriptions-item>
           </n-descriptions>
         </template>
+
+        <!-- Crons (read-only) -->
+        <template v-if="template.crons && template.crons.length">
+          <n-divider>定时任务 (自动注册)</n-divider>
+          <n-space>
+            <n-tag v-for="cron in template.crons" :key="cron" type="warning" :bordered="false" round>{{ cron }}</n-tag>
+          </n-space>
+        </template>
       </n-form>
     </n-spin>
 

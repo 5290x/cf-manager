@@ -92,9 +92,12 @@
             </n-radio-group>
           </n-form-item>
           <n-form-item v-if="deploySource === 'file'" label="脚本文件">
-            <n-upload :max="1" :default-upload="false" @change="handleFileChange" accept=".js">
-              <n-button>选择 .js 文件</n-button>
+            <n-upload :max="1" :default-upload="false" @change="handleFileChange" accept=".js,.zip">
+              <n-button>选择 .js / .zip</n-button>
             </n-upload>
+          </n-form-item>
+          <n-form-item v-if="deploySource === 'file'" label="入口模块">
+            <n-input v-model:value="deployMainModule" placeholder="单模块留空；zip 多模块填入口文件名（如 worker.js）" :disabled="!selectedFile || !selectedFile.name.toLowerCase().endsWith('.zip')" />
           </n-form-item>
           <n-form-item v-if="deploySource === 'file'" label="静态资源">
             <n-upload :max="1" :default-upload="false" @change="handleAssetsChange" accept=".zip">
@@ -168,7 +171,10 @@
             </n-radio-group>
           </n-form-item>
           <n-form-item v-if="batchSource === 'file'" label="脚本文件">
-            <n-upload :max="1" @change="({ file }: any) => batchFile = file.file || null"><n-button size="small">选择 .js 文件</n-button></n-upload>
+            <n-upload :max="1" @change="({ file }: any) => batchFile = file.file || null" accept=".js,.zip"><n-button size="small">选择 .js / .zip</n-button></n-upload>
+          </n-form-item>
+          <n-form-item v-if="batchSource === 'file'" label="入口模块">
+            <n-input v-model:value="batchMainModule" placeholder="单模块留空；zip 多模块填入口文件名（如 worker.js）" :disabled="!batchFile || !batchFile.name.toLowerCase().endsWith('.zip')" />
           </n-form-item>
           <n-form-item v-if="batchSource === 'file'" label="静态资源">
             <n-upload :max="1" :default-upload="false" @change="({ file }: any) => batchAssetsFile = file.file || null" accept=".zip"><n-button size="small">选择 .zip（可选）</n-button></n-upload>
@@ -255,6 +261,7 @@ const selectedAssetsFile = ref<File | null>(null);
 const deployForm = ref({ accountId: null as number | null, name: '' });
 const deploySource = ref<'file' | 'url'>('file');
 const deployUrl = ref('');
+const deployMainModule = ref('');
 
 // 设置抽屉（具体逻辑拆分到 WorkerSettingsDrawer / WorkerPagesSettingsDrawer 子组件）
 const settingsWorker = ref<any>(null);
@@ -288,6 +295,7 @@ function openDeploy(type?: 'worker' | 'pages', prefillName?: string, prefillAcco
   selectedAssetsFile.value = null;
   deploySource.value = 'file';
   deployUrl.value = '';
+  deployMainModule.value = '';
   isRedeploy.value = !!prefillName;
   deployForm.value = {
     accountId: prefillAccountId || accountStore.accounts[0]?.id || null,
@@ -310,7 +318,7 @@ async function handleDeploy() {
       if (deploySource.value === 'url') {
         await workersApi.deployFromUrl(deployForm.value.accountId, deployForm.value.name, deployUrl.value);
       } else {
-        await workersApi.deploy(deployForm.value.accountId, deployForm.value.name, selectedFile.value!, selectedAssetsFile.value || undefined);
+        await workersApi.deploy(deployForm.value.accountId, deployForm.value.name, selectedFile.value!, selectedAssetsFile.value || undefined, deployMainModule.value || undefined);
       }
       message.success('Worker 部署成功');
     } else {
@@ -391,6 +399,7 @@ const batchSource = ref<'file' | 'url'>('file');
 const batchFile = ref<File | null>(null);
 const batchAssetsFile = ref<File | null>(null);
 const batchUrl = ref('');
+const batchMainModule = ref('');
 const batchDeploying = ref(false);
 const batchResults = ref<any[]>([]);
 
@@ -400,6 +409,7 @@ function openBatchDeploy() {
   batchFile.value = null;
   batchAssetsFile.value = null;
   batchUrl.value = '';
+  batchMainModule.value = '';
   batchResults.value = [];
   showBatchDeployModal.value = true;
 }
@@ -412,7 +422,7 @@ async function handleBatchDeploy() {
   batchDeploying.value = true;
   try {
     if (batchType.value === 'worker') {
-      const { data } = await workersApi.batchDeploy(targets, batchFile.value || undefined, batchSource.value === 'url' ? batchUrl.value : undefined, batchAssetsFile.value || undefined);
+      const { data } = await workersApi.batchDeploy(targets, batchFile.value || undefined, batchSource.value === 'url' ? batchUrl.value : undefined, batchAssetsFile.value || undefined, batchMainModule.value || undefined);
       batchResults.value = Array.isArray(data) ? data : [];
     } else {
       if (!batchFile.value) { message.warning('请选择 zip 文件'); return; }

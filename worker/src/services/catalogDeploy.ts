@@ -247,7 +247,10 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       const src = template.type === 'hybrid' ? template.sources?.worker : template.source;
       if (!src) throw new Error('No worker source configured');
       const { content } = await downloadArtifact(src.url, 'worker');
-      await deployWorker(account, encryptionKey, name, content, {
+      const isZip = content[0] === 0x50 && content[1] === 0x4b;
+      await deployWorker(account, encryptionKey, name, isZip ? new Uint8Array(0) : content, {
+        ...(isZip ? { packageZip: content } : {}),
+        ...(src?.mainModule ? { mainModule: src.mainModule } : {}),
         bindings: resolvedBindings.map(b => b.cfBinding),
         env: template.env,
         assets: template.assets,
@@ -255,6 +258,18 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       const sub = await getWorkerSubdomain(account, encryptionKey);
       urls.push(sub ? `https://${name}.${sub}.workers.dev` : `https://${name}.workers.dev`);
       workerDeployed = true;
+
+      // 注册 Cron Triggers（仅 Worker 脚本支持）
+      if (template.crons && template.crons.length > 0) {
+        try {
+          await cfFetch(account, `/accounts/${account.account_id}/workers/scripts/${name}/schedules`, encryptionKey, {
+            method: 'PUT', body: JSON.stringify(template.crons.map((cron: string) => ({ cron }))),
+          });
+          console.log(`[Store] Cron triggers set for ${name}: ${template.crons.join(', ')}`);
+        } catch (e: any) {
+          warnings.push(`定时任务注册失败: ${e.message}`);
+        }
+      }
     }
 
     // Step 4: Deploy pages
@@ -372,17 +387,27 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
     return { success: true, warnings, bindings: resolvedBindings, url };
 
   } catch (e: any) {
+    // 展开 error.cause 链，避免 undici/cfFetch 抛的裸 "fetch failed" 吞掉真实原因
+    let cur: any = e; const chain: string[] = []; const seen = new Set<any>();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const seg = [cur.code, cur.message].filter(Boolean).join(' ');
+      if (seg && !chain.includes(seg)) chain.push(seg);
+      cur = cur.cause;
+    }
+    const detail = chain.join(' <- ') || String(e);
+    console.error(`[Store] Deploy failed for ${name} (${template.id}): ${detail}`);
     // Hard failure — rollback only the parts that were NOT successfully deployed
     // (hybrid: if only Pages failed, the already-deployed Worker must be preserved)
     const rollbackErrors = await rollback(account, encryptionKey, resolvedBindings, name, !workerDeployed);
     if (opts.db) {
       await addAuditLog(opts.db, {
         account_id: account.id, action: 'store_deploy', target: name,
-        detail: `error: ${e.message}`, status: 'error',
+        detail: `error: ${detail}`, status: 'error',
       });
     }
     return {
-      success: false, error: e.message, warnings, bindings: resolvedBindings,
+      success: false, error: detail, warnings, bindings: resolvedBindings,
       rolledBack: true, rollbackErrors: rollbackErrors.length > 0 ? rollbackErrors : undefined,
     };
   }

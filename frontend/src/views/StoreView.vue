@@ -141,8 +141,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, h } from 'vue';
 import { CheckmarkCircle, CloseCircle, TimeOutline, LogoGithub } from '@vicons/ionicons5';
+import { NSpace, NA } from 'naive-ui';
 import { storeApi } from '../api/store';
 import StoreDeployDialog from '../components/StoreDeployDialog.vue';
 import StoreCard from '../components/store/StoreCard.vue';
@@ -150,7 +151,7 @@ import StoreCategoryNav from '../components/store/StoreCategoryNav.vue';
 import StoreToolbar from '../components/store/StoreToolbar.vue';
 import MarkdownRenderer from '../components/store/MarkdownRenderer.vue';
 import { isFav, toggleFav } from '../utils/favorites';
-import { message } from '../utils/discreteApi';
+import { message, dialog } from '../utils/discreteApi';
 import type { CatalogBindingType, TemplateItem } from '../types/store';
 
 const loading = ref(false);
@@ -357,12 +358,32 @@ function onDeployed(result: any) {
     if (data.rolledBack) message.warning('已自动回滚');
     return;
   }
-  if (data.url) {
-    message.success(`部署成功！访问: ${data.url}`);
-  } else {
-    message.success('部署成功！请在 CF Dashboard 查看');
-  }
   deployVisible.value = false;
+  const urls = (data.url || '').split(' | ').filter(Boolean);
+  if (urls.length === 0) {
+    message.success('部署成功！请在 CF Dashboard 查看');
+    return;
+  }
+  // 部署成功：弹框询问是否打开新部署的地址
+  dialog.success({
+    title: '部署成功',
+    content: () =>
+      h('div', [
+        h('p', { style: 'margin: 0 0 8px' }, '是否打开新部署的地址？'),
+        h(
+          NSpace,
+          { vertical: true },
+          () => urls.map((u: string) =>
+            h(NA, { href: u, target: '_blank', style: 'word-break: break-all' }, { default: () => u })
+          )
+        ),
+      ]),
+    positiveText: '打开地址',
+    negativeText: '关闭',
+    onPositiveClick: () => {
+      urls.forEach((u: string) => window.open(u, '_blank'));
+    },
+  });
 }
 
 onMounted(async () => {
