@@ -50,6 +50,8 @@ export interface WorkerAssetsInput {
   config?: { html_handling?: string; not_found_handling?: string };
 }
 
+
+
 // 构造 Workers Assets manifest：路径以 "/" 开头，hash 与后端/Worker 资产算法一致。
 export async function buildAssetsManifest(
   files: Array<{ path: string; buffer: Buffer }>,
@@ -161,20 +163,50 @@ async function downloadArtifactForAssets(src: WorkerAssetsInput['source']): Prom
   return Buffer.from(await resp.arrayBuffer());
 }
 
+// 推断多模块入口文件名：优先显式 mainModule；其次 wrangler.toml/jsonc 的 main 字段；
+// 仅 1 个模块时直接用；多模块时按常见入口名优先级（worker.js → index.js/index.mjs → 根目录首个 JS）查找；最后回退 'worker.js'。
+function resolveMainModule(modules: Array<{ path: string; buffer: Buffer }> | null, explicit?: string): string {
+  if (explicit) return explicit;
+  if (!modules || modules.length === 0) return 'worker.js';
+  const conf = modules.find(m => /^wrangler\.(toml|jsonc|json)$/i.test(m.path));
+  if (conf) {
+    const txt = conf.buffer.toString('utf-8');
+    const m = txt.match(/^\s*main\s*=\s*"([^"]+)"/m) || txt.match(/"main"\s*:\s*"([^"]+)"/m);
+    if (m) return m[1].replace(/^\.\//, '');
+  }
+  if (modules.length === 1) return modules[0].path;
+  const candidates = ['worker.js', 'index.js', 'index.mjs', 'worker.mjs', 'index.cjs', 'worker.cjs'];
+  for (const c of candidates) {
+    if (modules.some(m => m.path === c)) return c;
+  }
+  const root = modules.find(m => /^[^/\\]+\.(m?js|cjs)$/i.test(m.path));
+  if (root) return root.path;
+  return 'worker.js';
+}
+
 export async function deployWorker(
   account: Account,
   name: string,
   scriptContent: string | Buffer,
-  options?: DeployWorkerOptions & { assets?: WorkerAssetsInput; assetsBuffer?: Buffer },
+  options?: DeployWorkerOptions & {
+    packageZip?: Buffer;        // 多模块 zip：本地解压后每个文件作为一个 files= part（与 wrangler 本地解包一致）
+    mainModule?: string;        // 多模块入口文件名（默认从 zip 推断，回退 'worker.js'）
+    assets?: WorkerAssetsInput;
+    assetsBuffer?: Buffer;
+  },
 ): Promise<DeployWorkerResult> {
   const accountId = account.account_id;
   if (!accountId) throw new Error('Account ID is required');
   const cf = getCfClient(account);
   const authHeaders = getAuthHeaders(account);
 
+  // 多模块：若提供 packageZip，本地解压为多个模块文件（与 wrangler 行为一致）。
+  const moduleParts = options?.packageZip ? extractZipFiles(options.packageZip) : null;
+  const mainModule = resolveMainModule(moduleParts, options?.mainModule);
+
   // Build metadata with optional bindings and env vars
   const metadata: any = {
-    main_module: 'worker.js',
+    main_module: moduleParts && moduleParts.length > 0 ? mainModule : 'worker.js',
     compatibility_date: options?.compatibilityDate || '2024-01-01',
   };
 
@@ -202,16 +234,33 @@ export async function deployWorker(
     metadata.bindings = [...(metadata.bindings || []), { name: options.assets.binding || 'ASSETS', type: 'assets' }];
   }
 
-  // Convert content to Uint8Array for Blob (handles both string and Buffer)
-  const contentBytes = typeof scriptContent === 'string'
-    ? new TextEncoder().encode(scriptContent)
-    : new Uint8Array(scriptContent);
+  // 多模块 zip（如 React Router on Workers）解压出的每个文件都要作为 Worker 模块上传：
+  // index.js 入口会 import assets/*.js 等代码分片，它们必须随脚本一起上传，否则 CF 报
+  // "No such module"。注意：静态资源（assets 绑定）由下面的 deployWorkerAssets 单独上传，
+  // 与这里的模块上传是两条独立通道，不要在此排除 assets/。
+  const moduleFiles = moduleParts;
 
   // Use raw fetch + FormData (same as Cloudflare wrangler does)
   // The SDK's scripts.update can mangle the multipart form in some versions
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.append('worker.js', new Blob([contentBytes], { type: 'application/javascript+module' }), 'worker.js');
+
+  if (moduleFiles && moduleFiles.length > 0) {
+    // 多模块：zip 解压出的每个文件一个 files= part，main_module 指向入口文件
+    if (!moduleFiles.some(m => m.path === mainModule)) {
+      throw new Error(`main_module "${mainModule}" 未在 zip 模块中找到（已包含: ${moduleFiles.map(m => m.path).join(', ')}）`);
+    }
+    for (const m of moduleFiles) {
+      const isJs = /\.(m?js|cjs)$/i.test(m.path);
+      form.append(m.path, new Blob([bufferToBlobPart(m.buffer)], { type: isJs ? 'application/javascript+module' : 'application/octet-stream' }), m.path);
+    }
+  } else {
+    // 单模块（默认）：兼容旧路径，脚本内容即 worker.js
+    const contentBytes = typeof scriptContent === 'string'
+      ? new TextEncoder().encode(scriptContent)
+      : new Uint8Array(scriptContent);
+    form.append('worker.js', new Blob([contentBytes], { type: 'application/javascript+module' }), 'worker.js');
+  }
 
   const resp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
     method: 'PUT',

@@ -100,7 +100,7 @@ app.post('/', async (c) => {
   try {
     const fresh = await getAccountById(db, id);
     if (fresh) {
-      const features = await probeAvailableFeatures(fresh, encryptionKey);
+      const features = await probeAvailableFeatures(fresh, c.env.ENCRYPTION_KEY);
       if (features) await updateAccount(db, id, { available_features: features });
     }
   } catch (e) {
@@ -265,7 +265,7 @@ app.post('/:id/test', async (c) => {
   try {
     const fresh = await getAccountById(db, id);
     if (fresh) {
-      const features = await probeAvailableFeatures(fresh, encryptionKey);
+      const features = await probeAvailableFeatures(fresh, c.env.ENCRYPTION_KEY);
       if (features) await updateAccount(db, id, { available_features: features });
     }
   } catch (e) {

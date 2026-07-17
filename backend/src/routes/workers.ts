@@ -32,7 +32,7 @@ import {
 } from '../services/workerService';
 import { getAllZones } from '../services/accountRouter';
 
-// 手动/批量 Worker 部署：script + 可选 assets（zip 可能较大，放宽到 50MB，与 Pages 一致）
+// 手动/批量 Worker 部署：script 可为单个 .js（单模块）或 .zip（多模块包）+ 可选 assets（zip 较大放宽到 50MB，与 Pages 一致）
 const uploadWorkerAssets = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024, fields: 10 },
@@ -109,7 +109,11 @@ router.post('/:accountId/workers', uploadWorkerAssets.fields([{ name: 'script' }
       createAuditLog(account.id, 'deploy_worker', name, `from_url=${req.body.url}${assetsOpts ? ',with_assets' : ''}`, 'success');
       res.status(201).json(script);
     } else if (scriptFile) {
-      const { script } = await deployWorker(account, name, scriptFile.buffer.toString('utf-8'), assetsOpts);
+      const isZip = scriptFile.originalname.toLowerCase().endsWith('.zip');
+      const deployOpts: any = { ...assetsOpts, mainModule: req.body.mainModule || undefined };
+      const { script } = isZip
+        ? await deployWorker(account, name, '', { ...deployOpts, packageZip: scriptFile.buffer })
+        : await deployWorker(account, name, scriptFile.buffer.toString('utf-8'), deployOpts);
       createAuditLog(account.id, 'deploy_worker', name, `file_size=${scriptFile.size}${assetsOpts ? ',with_assets' : ''}`, 'success');
       res.status(201).json(script);
     } else {
@@ -543,7 +547,11 @@ router.post('/batch-deploy', uploadWorkerAssets.fields([{ name: 'script' }, { na
     const { targets, url: scriptUrl } = req.body;
     const files = req.files as { script?: Express.Multer.File[]; assets?: Express.Multer.File[] };
     const assetsOpts = toAssetsOptions(files.assets?.[0]);
-    const scriptContent = files.script?.[0] ? files.script[0].buffer.toString('utf-8') : null;
+    const scriptFile = files.script?.[0];
+    const scriptContent = scriptFile ? scriptFile.buffer.toString('utf-8') : null;
+    const isZip = !!scriptFile && scriptFile.originalname.toLowerCase().endsWith('.zip');
+    const mainModule = req.body.mainModule || undefined;
+    const baseOpts: any = { ...assetsOpts, mainModule };
     const parsedTargets = typeof targets === 'string' ? JSON.parse(targets) : targets;
     if (!Array.isArray(parsedTargets) || parsedTargets.length === 0) {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'targets must be a non-empty array' } }); return;
@@ -557,9 +565,11 @@ router.post('/batch-deploy', uploadWorkerAssets.fields([{ name: 'script' }, { na
         const account = getAccountById(t.accountId);
         if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); return; }
         if (scriptUrl) {
-          await deployWorkerFromUrl(account, t.workerName, scriptUrl, assetsOpts);
+          await deployWorkerFromUrl(account, t.workerName, scriptUrl, baseOpts);
+        } else if (isZip) {
+          await deployWorker(account, t.workerName, '', { ...baseOpts, packageZip: scriptFile!.buffer });
         } else {
-          await deployWorker(account, t.workerName, scriptContent!, assetsOpts);
+          await deployWorker(account, t.workerName, scriptContent!, baseOpts);
         }
         createAuditLog(account.id, 'batch_deploy', t.workerName, null, 'success');
         results.push({ ...t, success: true });

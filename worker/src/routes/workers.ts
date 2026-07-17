@@ -54,9 +54,11 @@ app.post('/:accountId/workers', async (c) => {
   const contentType = c.req.header('content-type') || '';
 
   let name: string;
-  let scriptContent: string;
+  let scriptContent = '';
   let deploySource = 'upload';
   let assetsOpts: any;
+  let mainModule: string | undefined;
+  let deployed = false;
 
   if (contentType.includes('multipart/form-data')) {
     const formData = await c.req.formData();
@@ -68,6 +70,7 @@ app.post('/:accountId/workers', async (c) => {
       const buf = new Uint8Array(await assetsFile.arrayBuffer());
       assetsOpts = { assets: { source: { kind: assetsFile.name.toLowerCase().endsWith('.zip') ? 'zip' : 'raw', url: assetsFile.name }, assetsBuffer: buf } };
     }
+    mainModule = formData.get('mainModule') as string || undefined;
     if (!name) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Worker name is required' } }, 400);
     if (url) {
       deploySource = `url=${url}`;
@@ -78,7 +81,14 @@ app.post('/:accountId/workers', async (c) => {
         return c.json({ error: { code, message: e.message } }, e.statusCode || 400);
       }
     } else if (file) {
-      scriptContent = await file.text();
+      const isZip = file.name.toLowerCase().endsWith('.zip');
+      if (isZip) {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        await deployWorker(account, c.env.ENCRYPTION_KEY, name, new Uint8Array(0), { ...assetsOpts, packageZip: buf, mainModule });
+        deployed = true;
+      } else {
+        scriptContent = await file.text();
+      }
     } else {
       return c.json({ error: { code: 'NO_FILE', message: 'Script file or URL is required' } }, 400);
     }
@@ -99,7 +109,9 @@ app.post('/:accountId/workers', async (c) => {
     }
   }
 
-  await deployWorker(account, c.env.ENCRYPTION_KEY, name, new TextEncoder().encode(scriptContent), assetsOpts);
+  if (!deployed) {
+    await deployWorker(account, c.env.ENCRYPTION_KEY, name, new TextEncoder().encode(scriptContent), { ...assetsOpts, mainModule });
+  }
 
   await addAuditLog(c.env.DB, { account_id: account.id, action: 'deploy_worker', target: name, detail: deploySource + (assetsOpts ? ',with_assets' : ''), status: 'success' });
   return c.json({ success: true }, 201);
