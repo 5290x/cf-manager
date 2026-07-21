@@ -749,6 +749,52 @@ export async function listPagesDeployments(account: Account, projectName: string
   return deps;
 }
 
+export async function deletePagesDeployment(
+  account: Account,
+  projectName: string,
+  deploymentId: string
+): Promise<{ success: boolean; error?: string }> {
+  const cf = getCfClient(account);
+  try {
+    await cf.pages.projects.deployments.delete(projectName, deploymentId, {
+      account_id: account.account_id!,
+    });
+    return { success: true };
+  } catch (err: any) {
+    appLogger.error(`[Pages Deployment] Delete failed: ${deploymentId} — ${err?.message || err}`);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * 批量删除 Pages 部署记录（受控并发，最多 3 条并行）
+ */
+export async function batchDeletePagesDeployments(
+  account: Account,
+  projectName: string,
+  ids: string[]
+): Promise<{ total: number; succeeded: number; failed: number; results: Array<{ id: string; success: boolean; error?: string }> }> {
+  const CONCURRENCY = 3;
+  const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+  for (let i = 0; i < ids.length; i += CONCURRENCY) {
+    const batch = ids.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(
+      batch.map(id => deletePagesDeployment(account, projectName, id))
+    );
+    batchResults.forEach((r, j) => {
+      if (r.status === 'fulfilled') {
+        results.push({ id: batch[j], ...r.value });
+      } else {
+        results.push({ id: batch[j], success: false, error: String(r.reason) });
+      }
+    });
+  }
+
+  const succeeded = results.filter(r => r.success).length;
+  return { total: ids.length, succeeded, failed: ids.length - succeeded, results };
+}
+
 // ============ Cloudflare Resources (for Pages bindings) ============
 export async function listKvNamespaces(account: Account): Promise<any[]> {
   const cf = getCfClient(account);

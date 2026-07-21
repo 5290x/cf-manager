@@ -24,7 +24,7 @@ import {
   // Deployments
   listDeployments,
   // Pages settings
-  getPagesProject, editPagesProject, listPagesDomains, addPagesDomain, removePagesDomain, listPagesDeployments,
+  getPagesProject, editPagesProject, listPagesDomains, addPagesDomain, removePagesDomain, listPagesDeployments, deletePagesDeployment, batchDeletePagesDeployments,
   // Resources for bindings
   listKvNamespaces, listD1Databases, listR2Buckets, updatePagesBindings,
   // Usage
@@ -435,6 +435,37 @@ router.get('/:accountId/pages/:name/deployments', async (req: Request, res: Resp
     const account = getAccountOr404(req, res);
     if (!account) return;
     const result = await listPagesDeployments(account, req.params.name as string);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// 单条删除 Pages 部署记录
+router.delete('/:accountId/pages/:name/deployments/:deploymentId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const account = getAccountOr404(req, res);
+    if (!account) return;
+    const result = await deletePagesDeployment(account, req.params.name as string, req.params.deploymentId as string);
+    if (!result.success) {
+      res.status(400).json({ error: { code: 'DELETE_FAILED', message: result.error } });
+      return;
+    }
+    createAuditLog(account.id, 'delete_pages_deployment', `${req.params.name}/${req.params.deploymentId}`, null, 'success');
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// 批量删除 Pages 部署记录
+router.delete('/:accountId/pages/:name/deployments', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const account = getAccountOr404(req, res);
+    if (!account) return;
+    const { ids } = req.body as { ids?: string[] };
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'ids array is required' } });
+      return;
+    }
+    const result = await batchDeletePagesDeployments(account, req.params.name as string, ids);
+    createAuditLog(account.id, 'batch_delete_pages_deployments', req.params.name as string, `deleted ${result.succeeded}/${result.total} deployments`, 'success');
     res.json(result);
   } catch (err) { next(err); }
 });

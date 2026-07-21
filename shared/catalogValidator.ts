@@ -34,6 +34,7 @@ export interface CatalogBinding {
   type: 'kv' | 'd1' | 'r2' | 'ai' | 'var';
   name: string;
   title?: string;
+  resourceName?: string;
   action?: 'create-or-reuse' | 'prompt';
   required?: boolean;
   secret?: boolean;

@@ -364,6 +364,56 @@ app.get('/:accountId/pages/:name/deployments', async (c) => {
   return c.json(data.result ?? data);
 });
 
+// 单条删除 Pages 部署记录
+app.delete('/:accountId/pages/:name/deployments/:deploymentId', async (c) => {
+  const account = await requireAccount(c);
+  try {
+    await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${c.req.param('name')}/deployments/${c.req.param('deploymentId')}`, c.env.ENCRYPTION_KEY, { method: 'DELETE' });
+    await addAuditLog(c.env.DB, { account_id: account.id, action: 'delete_pages_deployment', target: `${c.req.param('name')}/${c.req.param('deploymentId')}`, status: 'success' });
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
+// 批量删除 Pages 部署记录（受控并发，最多 3 条并行）
+app.delete('/:accountId/pages/:name/deployments', async (c) => {
+  const account = await requireAccount(c);
+  const body = await c.req.json();
+  const ids: string[] = body?.ids;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'ids array is required' } }, 400);
+  }
+
+  const CONCURRENCY = 3;
+  const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+  for (let i = 0; i < ids.length; i += CONCURRENCY) {
+    const batch = ids.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (id) => {
+        try {
+          await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${c.req.param('name')}/deployments/${id}`, c.env.ENCRYPTION_KEY, { method: 'DELETE' });
+          return { id, success: true };
+        } catch (err: any) {
+          return { id, success: false, error: err?.message || String(err) };
+        }
+      })
+    );
+    for (const r of batchResults) {
+      if (r.status === 'fulfilled') {
+        results.push(r.value);
+      } else {
+        results.push({ id: 'unknown', success: false, error: String(r.reason) });
+      }
+    }
+  }
+
+  const succeeded = results.filter(r => r.success).length;
+  await addAuditLog(c.env.DB, { account_id: account.id, action: 'batch_delete_pages_deployments', target: c.req.param('name'), detail: `deleted ${succeeded}/${ids.length} deployments`, status: 'success' });
+  return c.json({ total: ids.length, succeeded, failed: ids.length - succeeded, results });
+});
+
 // ============ Resources ============
 app.get('/:accountId/resources/kv', async (c) => {
   const account = await requireAccount(c);

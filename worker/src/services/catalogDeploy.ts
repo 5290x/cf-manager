@@ -74,7 +74,7 @@ async function resolveBinding(
   selection: { mode: 'auto' | 'existing'; existingId?: string; runInitSql?: boolean } | undefined,
   templateId: string,
 ): Promise<ResolvedBinding> {
-  const title = binding.title || `${templateId}-${binding.name.toLowerCase()}`;
+  const title = binding.resourceName || `${templateId}-${binding.name.toLowerCase()}`;
   const sel = selection || { mode: 'auto' };
 
   if (binding.type === 'ai') {
