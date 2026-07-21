@@ -26,8 +26,8 @@
           </n-radio-group>
         </n-form-item>
 
-        <!-- Observability -->
-        <n-form-item label="可观测性">
+        <!-- Observability: Worker 特性，hybrid 模式选「仅 Pages」时不显示 -->
+        <n-form-item v-if="!isPagesOnly" label="可观测性">
           <n-space align="center" :size="24">
             <n-space align="center" :size="8">
               <n-switch v-model:value="enableLogs" size="small" />
@@ -152,6 +152,13 @@ const needsR2 = computed(() =>
   (props.template?.bindings || []).some((b: any) => b.type === 'r2')
 );
 
+// 是否为「仅 Pages」部署：纯 pages 模板 或 hybrid 但选了仅 pages
+// 这两种情况下 Workers 日志/跟踪不适用，需要隐藏「可观测性」区域
+const isPagesOnly = computed(() =>
+  props.template?.type === 'pages' ||
+  (props.template?.type === 'hybrid' && deployType.value === 'pages')
+);
+
 // 精确判断账户是否开通 R2：避免 '-r2' 被 includes('r2') 误匹配
 function hasR2Feature(account: any): boolean {
   const features = (account.available_features || '').split(',').filter(Boolean);
@@ -255,11 +262,16 @@ async function handleDeploy() {
   try {
     const selections: Record<string, any> = {};
     for (const [name, sel] of Object.entries(bindingSelections.value)) {
-      selections[name] = {
+      const entry: any = {
         mode: sel.mode,
         existingId: sel.existingId,
-        runInitSql: sel.runInitSql,
       };
+      // auto 模式下不发送 runInitSql，让后端自行判断：
+      // 新建 DB 默认执行 init SQL，已有 DB 不执行（除非用户显式勾选）
+      if (sel.mode === 'existing') {
+        entry.runInitSql = sel.runInitSql;
+      }
+      selections[name] = entry;
     }
 
     const result = await storeApi.deploy({

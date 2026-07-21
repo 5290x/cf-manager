@@ -81,6 +81,8 @@ export const workersApi = {
   addPagesDomain: (accountId: number, name: string, hostname: string) => apiClient.post(`/workers/${accountId}/pages/${name}/domains`, { hostname }),
   removePagesDomain: (accountId: number, name: string, hostname: string) => apiClient.delete(`/workers/${accountId}/pages/${name}/domains/${hostname}`),
   getPagesDeployments: (accountId: number, name: string) => apiClient.get(`/workers/${accountId}/pages/${name}/deployments`),
+  deletePagesDeployments: (accountId: number, name: string, ids: string[]) =>
+    apiClient.delete(`/workers/${accountId}/pages/${name}/deployments`, { data: { ids } }),
 
   // Resources (for Pages bindings)
   getKvNamespaces: (accountId: number) => apiClient.get(`/workers/${accountId}/resources/kv`),

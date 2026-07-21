@@ -44,7 +44,8 @@
       "properties": {
         "type": { "enum": ["kv", "d1", "r2", "ai", "var"] },
         "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
-        "title": { "type": "string" },
+        "title": { "type": "string", "description": "绑定显示名（自由文本）。" },
+        "resourceName": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", "description": "Cloudflare 资源名（D1/KV/R2）。缺省时用 templateId-bindingName 兜底。" },
         "action": { "enum": ["create-or-reuse", "prompt"] },
         "required": { "type": "boolean" },
         "secret": { "type": "boolean", "description": "仅对 type:var 生效。true/缺省=作为加密 secret 写入（secret_text，前端显示密码框）；false=作为明文环境变量写入（plain_text，前端显示普通文本框）。" },

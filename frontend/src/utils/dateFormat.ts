@@ -15,7 +15,16 @@ export function formatCN(input: string | number | Date): string {
     date = new Date(input);
   }
   if (isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  return date.toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 export function formatCNShort(input: string | number | Date): string {

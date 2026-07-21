@@ -66,10 +66,33 @@
           <n-space vertical>
             <n-space justify="space-between">
               <n-text depth="3">查看 Pages 部署记录</n-text>
-              <n-button size="small" @click="loadPagesDeployments">刷新</n-button>
+              <n-space>
+                <n-button size="small" @click="checkAllCurrentPage">全选当前页</n-button>
+                <n-button size="small" @click="checkedDeploymentIds = []">取消全选</n-button>
+                <n-button
+                  size="small"
+                  type="error"
+                  :disabled="checkedDeploymentIds.length === 0 || batchDeleting"
+                  :loading="batchDeleting"
+                  @click="showBatchDeleteModal = true"
+                >
+                  删除选中 ({{ checkedDeploymentIds.length }})
+                </n-button>
+                <n-button size="small" @click="loadPagesDeployments" :loading="pagesDeploymentsLoading">刷新</n-button>
+              </n-space>
             </n-space>
             <n-spin :show="pagesDeploymentsLoading">
-              <n-data-table :columns="pagesDeploymentColumns" :data="pagesDeployments" :bordered="false" size="small" :scroll-x="900" :pagination="{ pageSize: 10 }" />
+              <n-data-table
+                :columns="pagesDeploymentColumns"
+                :data="pagesDeployments"
+                :bordered="false"
+                size="small"
+                :scroll-x="820"
+                :pagination="pagesDeploymentPagination"
+                :row-key="(row: any) => row.id"
+                :checked-row-keys="checkedDeploymentIds"
+                @update:checked-row-keys="handleCheckedKeysChange"
+              />
             </n-spin>
           </n-space>
         </n-tab-pane>
@@ -133,6 +156,25 @@
       <n-button @click="showBindingModal = false">取消</n-button>
       <n-button type="primary" :loading="bindingSaving" @click="handleAddBinding">保存</n-button>
     </template>
+  </n-modal>
+
+  <!-- 批量删除 Pages 部署确认弹窗 -->
+  <n-modal
+    v-model:show="showBatchDeleteModal"
+    preset="dialog"
+    title="批量删除部署记录"
+    positive-text="删除"
+    negative-text="取消"
+    :positive-button-props="{ type: 'error' }"
+    :loading="batchDeleting"
+    @positive-click="handleBatchDeleteDeployments"
+  >
+    <n-space vertical>
+      <div v-if="checkedProductionCount > 0" style="color: #d97706; font-weight: 500; padding: 8px 12px; background: #fef3c7; border-radius: 4px; border: 1px solid #fcd34d;">
+        ⚠ 包含 {{ checkedProductionCount }} 条生产环境部署，删除后无法恢复！
+      </div>
+      <div>确定删除选中的 <strong>{{ checkedDeploymentIds.length }}</strong> 条部署记录吗？此操作不可撤销。</div>
+    </n-space>
   </n-modal>
 </template>
 
@@ -372,6 +414,23 @@ async function handleDeleteBinding(row: any) {
 }
 const pagesDeployments = ref<any[]>([]);
 const pagesDeploymentsLoading = ref(false);
+const checkedDeploymentIds = ref<string[]>([]);
+const batchDeleting = ref(false);
+const showBatchDeleteModal = ref(false);
+
+// 部署历史表格分页：默认每页 10 条，支持切换页长方便全选批量删除
+const pagesDeploymentPagination = ref<{ page: number; pageSize: number; pageSizes: number[]; showSizePicker: boolean }>({
+  page: 1,
+  pageSize: 10,
+  pageSizes: [10, 20, 50, 100, 200],
+  showSizePicker: true,
+});
+
+// 当前页选中的生产环境部署数量（用于警告显示）
+const checkedProductionCount = computed(() => {
+  const checked = pagesDeployments.value.filter(d => checkedDeploymentIds.value.includes(d.id));
+  return checked.filter(d => d.environment === 'production').length;
+});
 
 async function checkR2Availability() {
   try {
@@ -490,7 +549,54 @@ async function loadPagesDeployments() {
     const { data } = await workersApi.getPagesDeployments(accountId.value, workerName.value);
     pagesDeployments.value = Array.isArray(data) ? data : [];
   } catch { pagesDeployments.value = []; }
-  finally { pagesDeploymentsLoading.value = false; }
+  finally {
+    pagesDeploymentsLoading.value = false;
+    checkedDeploymentIds.value = [];
+  }
+}
+
+function handleCheckedKeysChange(keys: string[]) {
+  checkedDeploymentIds.value = keys;
+}
+
+// 全选当前页（仅勾选 data-table 当前分页展示的记录）
+function checkAllCurrentPage() {
+  checkedDeploymentIds.value = pagesDeployments.value.map(d => d.id);
+}
+
+async function handleBatchDeleteDeployments() {
+  const idsToDelete = [...checkedDeploymentIds.value];
+  if (idsToDelete.length === 0) return;
+
+  batchDeleting.value = true;
+  try {
+    const { data } = await workersApi.deletePagesDeployments(accountId.value, workerName.value, idsToDelete);
+    const succeeded = data?.succeeded ?? 0;
+    const failed = data?.failed ?? 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = data?.results ?? [];
+
+    if (succeeded === 0) {
+      // 全部失败：展示第一条错误信息
+      const firstErr = results.find(r => r.error)?.error || '未知错误';
+      message.error(`删除失败：${firstErr}`);
+    } else if (failed > 0) {
+      // 部分失败：展示错误提示
+      const failedErrors = results.filter(r => !r.success).map(r => r.error).filter(Boolean);
+      const firstErr = failedErrors[0] || '';
+      message.warning(`成功删除 ${succeeded} 条，${failed} 条失败${firstErr ? `（${firstErr}）` : ''}`);
+    } else {
+      message.success(`已成功删除 ${succeeded} 条部署记录`);
+    }
+
+    // 关闭弹窗并刷新列表
+    showBatchDeleteModal.value = false;
+    await loadPagesDeployments();
+  } catch (e: any) {
+    const errMsg = e?.errorMessage || e?.message || '批量删除失败';
+    message.error(errMsg);
+  } finally {
+    batchDeleting.value = false;
+  }
 }
 
 // Columns
@@ -539,12 +645,13 @@ const bindingsColumns: DataTableColumns<any> = [
 ];
 
 const pagesDeploymentColumns: DataTableColumns<any> = [
-  { title: 'ID', key: 'id', width: 100, ellipsis: true },
-  { title: '环境', key: 'environment', width: 100, render: (row) => h(NTag, { size: 'small', type: row.environment === 'production' ? 'success' : 'info' }, { default: () => row.environment || '-' }) },
-  { title: '状态', key: 'status', width: 100, render: (row) => h(NTag, { size: 'small', type: row.latest_stage?.status === 'success' ? 'success' : row.latest_stage?.status === 'failure' ? 'error' : 'default' }, { default: () => row.latest_stage?.status || '-' }) },
-  { title: '阶段', key: 'stage', width: 100, render: (row) => row.latest_stage?.name || '-' },
-  { title: 'URL', key: 'url', minWidth: 250, render: (row) => row.url ? h('a', { href: row.url, target: '_blank', style: 'word-break: break-all; font-size: 12px;' }, row.url) : '-' },
-  { title: '创建时间', key: 'created_on', width: 170, render: (row) => row.created_on ? formatCN(row.created_on) : '-' },
+  { type: 'selection' as any },
+  { title: 'ID', key: 'id', width: 90, ellipsis: true },
+  { title: '环境', key: 'environment', width: 90, render: (row) => h(NTag, { size: 'small', type: row.environment === 'production' ? 'success' : 'info' }, { default: () => row.environment || '-' }) },
+  { title: '状态', key: 'status', width: 80, render: (row) => h(NTag, { size: 'small', type: row.latest_stage?.status === 'success' ? 'success' : row.latest_stage?.status === 'failure' ? 'error' : 'default' }, { default: () => row.latest_stage?.status || '-' }) },
+  { title: '阶段', key: 'stage', width: 80, render: (row) => row.latest_stage?.name || '-' },
+  { title: 'URL', key: 'url', minWidth: 200, render: (row) => row.url ? h('a', { href: row.url, target: '_blank', style: 'word-break: break-all; font-size: 12px;' }, row.url) : '-' },
+  { title: '创建时间', key: 'created_on', width: 200, render: (row) => row.created_on ? formatCN(row.created_on) : '-' },
 ];
 
 // 打开抽屉时加载数据

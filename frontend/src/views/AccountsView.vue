@@ -208,7 +208,7 @@
 
 <script setup lang="ts">
 import { ref, h, computed, onMounted } from 'vue';
-import { NButton, NSpace, NProgress, NTag, useMessage } from 'naive-ui';
+import { NButton, NSpace, NProgress, NTag, NPopconfirm, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import type { UploadFileInfo } from 'naive-ui';
 import { useAccountStore } from '../stores/accountStore';
@@ -560,7 +560,14 @@ const columns: DataTableColumns<any> = [
           isExhausted
             ? h(NButton, { size: 'small', type: 'warning', disabled: row.is_demo, onClick: () => handleClearExhausted(row) }, { default: () => '清除耗尽' })
             : null,
-          h(NButton, { size: 'small', type: 'error', disabled: row.is_demo, onClick: () => handleDelete(row) }, { default: () => '删除' }),
+          h(NPopconfirm, {
+            positiveText: '删除',
+            negativeText: '取消',
+            onPositiveClick: () => handleDelete(row),
+          }, {
+            trigger: () => h(NButton, { size: 'small', type: 'error', disabled: row.is_demo }, { default: () => '删除' }),
+            default: () => `确定要删除账户 "${row.name}" 吗？此操作不可恢复。`,
+          }),
         ].filter(Boolean),
       });
     },
