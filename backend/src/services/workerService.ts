@@ -137,9 +137,13 @@ async function deployWorkerAssets(
   // 预计算 hash → buffer 映射，用于按 buckets 选择性上传
   const manifest = await buildAssetsManifest(files);
   const hashToBuffer = new Map<string, Buffer>();
+  const hashToPath = new Map<string, string>();
   for (const f of files) {
     const hash = await computeStaticAssetHash(f.buffer, f.path);
-    if (!hashToBuffer.has(hash)) hashToBuffer.set(hash, f.buffer);
+    if (!hashToBuffer.has(hash)) {
+      hashToBuffer.set(hash, f.buffer);
+      hashToPath.set(hash, f.path);
+    }
   }
 
   const sessionResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`, {
@@ -164,9 +168,10 @@ async function deployWorkerAssets(
   }
 
   // 按 buckets 分批上传：每个 bucket 是一批需要一起上传的 hash 列表
+  // 每批次上传后 CF 返回新的 JWT，下一批次必须用新 JWT（对标 wrangler syncAssets）
   const totalHashes = buckets.reduce((n, b) => n + b.length, 0);
   appLogger.info(`[Worker Assets] Uploading ${totalHashes} assets in ${buckets.length} bucket(s)`);
-  let completionJwt: string | undefined;
+  let completionJwt = sessionJwt;
   for (let bi = 0; bi < buckets.length; bi++) {
     const bucket = buckets[bi];
     const upForm = new FormData();
@@ -176,19 +181,19 @@ async function deployWorkerAssets(
         appLogger.warn(`[Worker Assets] Hash ${hash} not found in local files, skipping`);
         continue;
       }
-      upForm.append(hash, new Blob([buf.toString('base64')], { type: 'application/octet-stream' }), hash);
+      upForm.append(hash, new Blob([buf.toString('base64')], { type: getContentType(hashToPath.get(hash) || '') }), hash);
     }
     const upResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${sessionJwt}`, 'User-Agent': 'wrangler/4.112.0' },
+      headers: { Authorization: `Bearer ${completionJwt}`, 'User-Agent': 'wrangler/4.112.0' },
       body: upForm,
     });
     if (!upResp.ok) {
       const txt = await upResp.text();
-      throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (uploadJwtLen=${sessionJwt.length})`);
+      throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (jwtLen=${completionJwt.length})`);
     }
     const upJson = await upResp.json() as any;
-    completionJwt = upJson.jwt ?? upJson.result?.jwt;
+    if (upJson.result?.jwt) completionJwt = upJson.result.jwt;
   }
   if (!completionJwt) throw new Error(`assets upload response missing completion jwt`);
   return { jwt: completionJwt };
@@ -203,7 +208,7 @@ async function downloadArtifactForAssets(src: WorkerAssetsInput['source']): Prom
 
 // 推断多模块入口文件名：优先显式 mainModule；其次 wrangler.toml/jsonc 的 main 字段；
 // 仅 1 个模块时直接用；多模块时按常见入口名优先级（worker.js → index.js/index.mjs → 根目录首个 JS）查找；最后回退 'worker.js'。
-function resolveMainModule(modules: Array<{ path: string; buffer: Buffer }> | null, explicit?: string): string {
+export function resolveMainModule(modules: Array<{ path: string; buffer: Buffer }> | null, explicit?: string): string {
   if (explicit) return explicit;
   if (!modules || modules.length === 0) return 'worker.js';
   const conf = modules.find(m => /^wrangler\.(toml|jsonc|json)$/i.test(m.path));
@@ -316,7 +321,7 @@ export async function deployWorker(
     }
     for (const m of moduleFiles) {
       const isJs = /\.(m?js|cjs)$/i.test(m.path);
-      form.append(m.path, new Blob([bufferToBlobPart(m.buffer)], { type: isJs ? 'application/javascript+module' : 'application/octet-stream' }), m.path);
+      form.append(m.path, new Blob([bufferToBlobPart(m.buffer)], { type: isJs ? 'application/javascript+module' : getContentType(m.path) }), m.path);
     }
   } else {
     // 单模块（默认）：兼容旧路径，脚本内容即 worker.js

@@ -76,7 +76,7 @@ export interface CatalogTemplate {
   assets?: {
     source: SourceConfig;
     binding?: string;
-    config?: { html_handling?: string; not_found_handling?: string };
+    config?: { html_handling?: string; not_found_handling?: string; run_worker_first?: string[] };
   };
   migrations?: Array<{ tag: string; new_classes?: string[]; renamed_classes?: Array<{ from: string; to: string }>; deleted_classes?: string[] }>;
   keep_vars?: boolean;

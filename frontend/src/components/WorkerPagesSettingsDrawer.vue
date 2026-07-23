@@ -101,7 +101,7 @@
   </n-drawer>
 
   <!-- Pages Domain Modal -->
-  <n-modal v-model:show="showPagesDomainModal" preset="dialog" title="添加 Pages 域名" style="width: 450px; max-width: 95vw">
+  <n-modal v-model:show="showPagesDomainModal" preset="dialog" title="添加 Pages 域名" style="width: 520px; max-width: 95vw">
     <n-form label-placement="left" label-width="80">
       <n-form-item label="域名">
         <n-select
@@ -109,9 +109,18 @@
           :options="managedDomainOptions"
           filterable
           tag
-          placeholder="选择或输入域名"
+          placeholder="选择 Zone 或输入完整域名"
           :loading="managedDomainsLoading"
         />
+      </n-form-item>
+      <n-form-item v-if="isPagesZoneSelected" label="子域名">
+        <n-input-group>
+          <n-input v-model:value="pagesDomainSubdomain" placeholder="留空绑定根域名" />
+          <n-input :value="`.${pagesDomainHostname}`" disabled style="width: 40%" />
+        </n-input-group>
+      </n-form-item>
+      <n-form-item v-if="composedPagesHostname" label="预览">
+        <n-tag type="info" size="large">{{ composedPagesHostname }}</n-tag>
       </n-form-item>
     </n-form>
     <template #action>
@@ -215,12 +224,22 @@ const pagesDomains = ref<any[]>([]);
 const pagesDomainsLoading = ref(false);
 const showPagesDomainModal = ref(false);
 const pagesDomainHostname = ref('');
+const pagesDomainSubdomain = ref('');
 const pagesDomainSaving = ref(false);
 const managedDomains = ref<any[]>([]);
 const managedDomainsLoading = ref(false);
 const managedDomainOptions = computed(() =>
   managedDomains.value.map((z: any) => ({ label: `${z.name} (${z.status})`, value: z.name }))
 );
+const isPagesZoneSelected = computed(() =>
+  !!pagesDomainHostname.value && managedDomains.value.some((z: any) => z.name === pagesDomainHostname.value)
+);
+const composedPagesHostname = computed(() => {
+  const zone = pagesDomainHostname.value;
+  if (!zone) return '';
+  const sub = pagesDomainSubdomain.value?.trim();
+  return sub ? `${sub}.${zone}` : zone;
+});
 const pagesEnvVars = ref<any[]>([]);
 const showPagesEnvModal = ref(false);
 const pagesEnvEditing = ref(false);
@@ -476,6 +495,7 @@ async function loadPagesDomains() {
 
 async function openPagesDomainModal() {
   pagesDomainHostname.value = '';
+  pagesDomainSubdomain.value = '';
   showPagesDomainModal.value = true;
   managedDomainsLoading.value = true;
   try {
@@ -486,13 +506,14 @@ async function openPagesDomainModal() {
 }
 
 async function handleAddPagesDomain() {
-  if (!pagesDomainHostname.value) { message.warning('请填写域名'); return; }
+  if (!composedPagesHostname.value) { message.warning('请选择或输入域名'); return; }
   pagesDomainSaving.value = true;
   try {
-    await workersApi.addPagesDomain(accountId.value, workerName.value, pagesDomainHostname.value);
+    await workersApi.addPagesDomain(accountId.value, workerName.value, composedPagesHostname.value);
     message.success('域名已添加');
     showPagesDomainModal.value = false;
     pagesDomainHostname.value = '';
+    pagesDomainSubdomain.value = '';
     loadPagesDomains();
   } finally { pagesDomainSaving.value = false; }
 }

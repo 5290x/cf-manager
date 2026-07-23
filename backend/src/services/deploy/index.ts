@@ -10,7 +10,7 @@ import { proxyFetch } from '../proxyService';
 import { createAuditLog } from '../../models/auditLog';
 import type { CatalogTemplate, CatalogBinding } from '../catalogValidator';
 import { appLogger } from '../logger';
-import { extractZipFiles, validatePagesProjectName, ensurePagesProject } from '../workerService';
+import { extractZipFiles, validatePagesProjectName, ensurePagesProject, resolveMainModule } from '../workerService';
 
 import { preflight } from './preflight';
 import { deployWorker } from './workerDeploy';
@@ -336,6 +336,31 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         logpush: template.logpush,
       };
 
+      // ZIP 多模块：解压出每个文件作为 Worker 模块上传（与 wrangler 本地解包一致）
+      if (isZip) {
+        const moduleFiles = extractZipFiles(content);
+        const mainName = resolveMainModule(moduleFiles, src.mainModule);
+        const mainFile = moduleFiles.find(m => m.path === mainName);
+        if (!mainFile) {
+          throw new Error(
+            `main_module "${mainName}" not found in zip (available: ${moduleFiles.map(m => m.path).join(', ')})`,
+          );
+        }
+        appLogger.info(`[Deploy] ZIP extracted: ${moduleFiles.length} files, main=${mainName} (${mainFile.buffer.length} bytes)`);
+        workerInit.main = {
+          name: mainName,
+          content: mainFile.buffer,
+          type: 'esm',
+        };
+        workerInit.modules = moduleFiles
+          .filter(m => m.path !== mainName)
+          .map(m => ({
+            name: m.path,
+            content: m.buffer,
+            type: /\.(m?js|cjs)$/i.test(m.path) ? 'esm' as const : 'text' as const,
+          }));
+      }
+
       // Handle assets
       let assetsOpts: DeployWorkerOptions['assets'];
       if (template.assets) {
@@ -354,15 +379,14 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         }
       }
 
-      const result = await deployWorker(account, name, isZip ? '' : content, workerInit, {
-        ...(isZip ? {} : {}),
+      const result = await deployWorker(account, name, isZip ? null : content, workerInit, {
         bindings: resolvedBindings.map(b => b.cfBinding),
         traces: traces !== false,
         logs: logs !== false,
         createDeployment: true,
         enableSubdomain: true,
         assets: assetsOpts,
-        useVersionsApi: false, // Use legacy PUT for now; preflight will determine this
+        useVersionsApi: true, // 对标 wrangler：默认使用 Versions API（首次部署时内部会回退到 PUT）
       });
 
       urls.push(result.subdomain ? `https://${name}.${result.subdomain}.workers.dev` : `https://${name}.workers.dev`);

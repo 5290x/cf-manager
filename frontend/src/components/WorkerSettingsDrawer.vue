@@ -87,7 +87,7 @@
           <n-space vertical>
             <n-space justify="space-between">
               <n-text depth="3">绑定自定义域名到 Worker</n-text>
-              <n-button size="small" type="primary" @click="showDomainModal = true">添加域名</n-button>
+              <n-button size="small" type="primary" @click="openDomainModal">添加域名</n-button>
             </n-space>
             <n-spin :show="domainsLoading">
               <n-data-table :columns="domainColumns" :data="domains" :bordered="false" size="small" :scroll-x="500" />
@@ -148,9 +148,17 @@
         <n-tab-pane name="routes" tab="路由">
           <n-space vertical>
             <n-space>
-              <n-input v-model:value="routeZoneId" placeholder="Zone ID" size="small" style="width: 260px" />
+              <n-select
+                v-model:value="routeZoneId"
+                :options="zoneIdOptions"
+                filterable
+                placeholder="选择 Zone"
+                :loading="zonesLoading"
+                size="small"
+                style="width: 280px"
+              />
               <n-button size="small" type="primary" @click="loadRoutes">加载路由</n-button>
-              <n-button size="small" @click="showRouteModal = true">添加路由</n-button>
+              <n-button size="small" @click="openRouteModal">添加路由</n-button>
             </n-space>
             <n-spin :show="routesLoading">
               <n-data-table :columns="routeColumns" :data="routes" :bordered="false" size="small" :scroll-x="500" />
@@ -214,10 +222,26 @@
   </n-modal>
 
   <!-- Domain Modal -->
-  <n-modal v-model:show="showDomainModal" preset="dialog" title="添加自定义域名" style="width: 450px; max-width: 95vw">
+  <n-modal v-model:show="showDomainModal" preset="dialog" title="添加自定义域名" style="width: 520px; max-width: 95vw">
     <n-form :model="domainForm" label-placement="left" label-width="80">
       <n-form-item label="域名">
-        <n-input v-model:value="domainForm.hostname" placeholder="example.com" />
+        <n-select
+          v-model:value="domainForm.zoneName"
+          :options="zoneOptions"
+          filterable
+          tag
+          placeholder="选择 Zone 或输入完整域名"
+          :loading="zonesLoading"
+        />
+      </n-form-item>
+      <n-form-item v-if="isZoneSelected" label="子域名">
+        <n-input-group>
+          <n-input v-model:value="domainForm.subdomain" placeholder="留空绑定根域名" />
+          <n-input :value="`.${domainForm.zoneName}`" disabled style="width: 40%" />
+        </n-input-group>
+      </n-form-item>
+      <n-form-item v-if="composedHostname" label="预览">
+        <n-tag type="info" size="large">{{ composedHostname }}</n-tag>
       </n-form-item>
       <n-form-item label="环境">
         <n-select v-model:value="domainForm.environment" :options="[{label:'production',value:'production'},{label:'staging',value:'staging'}]" clearable />
@@ -230,10 +254,17 @@
   </n-modal>
 
   <!-- Route Modal -->
-  <n-modal v-model:show="showRouteModal" preset="dialog" title="添加路由" style="width: 450px; max-width: 95vw">
+  <n-modal v-model:show="showRouteModal" preset="dialog" title="添加路由" style="width: 500px; max-width: 95vw">
     <n-form :model="routeForm" label-placement="left" label-width="80">
-      <n-form-item label="Zone ID">
-        <n-input v-model:value="routeForm.zone_id" placeholder="Zone ID" />
+      <n-form-item label="Zone">
+        <n-select
+          v-model:value="routeForm.zone_id"
+          :options="zoneIdOptions"
+          filterable
+          placeholder="选择 Zone"
+          :loading="zonesLoading"
+          @update:value="onRouteZoneChange"
+        />
       </n-form-item>
       <n-form-item label="Pattern">
         <n-input v-model:value="routeForm.pattern" placeholder="example.com/*" />
@@ -395,7 +426,42 @@ const domains = ref<any[]>([]);
 const domainsLoading = ref(false);
 const showDomainModal = ref(false);
 const domainSaving = ref(false);
-const domainForm = ref({ hostname: '', environment: '' });
+const domainForm = ref({ zoneName: '', subdomain: '', environment: '' });
+const isZoneSelected = computed(() =>
+  !!domainForm.value.zoneName && zones.value.some((z: any) => z.name === domainForm.value.zoneName)
+);
+const composedHostname = computed(() => {
+  const zone = domainForm.value.zoneName;
+  if (!zone) return '';
+  const sub = domainForm.value.subdomain?.trim();
+  return sub ? `${sub}.${zone}` : zone;
+});
+
+// Zones（用于域名选择和路由选择）
+const zones = ref<any[]>([]);
+const zonesLoading = ref(false);
+const zoneOptions = computed(() =>
+  zones.value.map((z: any) => ({ label: `${z.name} (${z.status})`, value: z.name }))
+);
+const zoneIdOptions = computed(() =>
+  zones.value.map((z: any) => ({ label: `${z.name} (${z.status})`, value: z.id }))
+);
+
+async function loadZones() {
+  if (zones.value.length) return; // 已加载过则跳过
+  zonesLoading.value = true;
+  try {
+    const { data } = await workersApi.getZones(accountId.value);
+    zones.value = Array.isArray(data) ? data : [];
+  } catch { zones.value = []; }
+  finally { zonesLoading.value = false; }
+}
+
+async function openDomainModal() {
+  domainForm.value = { zoneName: '', subdomain: '', environment: '' };
+  showDomainModal.value = true;
+  loadZones();
+}
 
 // Subdomain
 const subdomainInfo = ref<any>(null);
@@ -492,13 +558,13 @@ async function loadDomains() {
 }
 
 async function handleAddDomain() {
-  if (!domainForm.value.hostname) { message.warning('请填写域名'); return; }
+  if (!composedHostname.value) { message.warning('请选择或输入域名'); return; }
   domainSaving.value = true;
   try {
-    await workersApi.createDomain(accountId.value, workerName.value, domainForm.value.hostname, domainForm.value.environment || undefined);
+    await workersApi.createDomain(accountId.value, workerName.value, composedHostname.value, domainForm.value.environment || undefined);
     message.success('域名已添加');
     showDomainModal.value = false;
-    domainForm.value = { hostname: '', environment: '' };
+    domainForm.value = { zoneName: '', subdomain: '', environment: '' };
     loadDomains();
   } finally { domainSaving.value = false; }
 }
@@ -549,13 +615,27 @@ async function updateScriptSetting(key: string, value: any) {
 }
 
 async function loadRoutes() {
-  if (!routeZoneId.value) { message.warning('请输入 Zone ID'); return; }
+  if (!routeZoneId.value) { message.warning('请选择 Zone'); return; }
   routesLoading.value = true;
   try {
     const { data } = await workersApi.getRoutes(accountId.value, workerName.value, routeZoneId.value);
     routes.value = Array.isArray(data) ? data : [];
   } catch { routes.value = []; }
   finally { routesLoading.value = false; }
+}
+
+async function openRouteModal() {
+  routeForm.value = { zone_id: routeZoneId.value || '', pattern: '' };
+  showRouteModal.value = true;
+  loadZones();
+}
+
+function onRouteZoneChange(zoneId: string) {
+  // 根据选中的 Zone 自动建议 pattern
+  const zone = zones.value.find((z: any) => z.id === zoneId);
+  if (zone && !routeForm.value.pattern) {
+    routeForm.value.pattern = `${zone.name}/*`;
+  }
 }
 
 async function handleAddRoute() {
@@ -694,6 +774,7 @@ watch(
   () => [props.show, props.worker?.name, props.worker?.cfAccountId] as const,
   () => {
   if (props.show && props.worker) {
+    zones.value = []; // 重置 zones，新 worker 重新加载
     loadSecrets();
     loadSchedules();
     loadDomains();

@@ -7,6 +7,7 @@ import type { Account } from '../../db/models';
 import { cfFetch, cfFetchAll } from '../cfApi';
 import type { CatalogTemplate, CatalogBinding } from '../catalogValidator';
 import { extractZipFiles, validatePagesProjectName, ensurePagesProject } from '../pagesDeploy';
+import { resolveMainModule } from '../assetsDeploy';
 import { addAuditLog } from '../../db/models';
 
 import { preflight } from './preflight';
@@ -270,6 +271,7 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
       const src = template.type === 'hybrid' ? template.sources?.worker : template.source;
       if (!src) throw new Error('No worker source configured');
       const content = await downloadArtifact(src.url, 'worker');
+      const isZip = content[0] === 0x50 && content[1] === 0x4b;
 
       const workerInit: Partial<import('./types').CfWorkerInit> = {
         compatibility_date: template.compatibility_date || '2024-11-01',
@@ -283,6 +285,31 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         limits: template.limits as Limits | undefined,
         logpush: template.logpush,
       };
+
+      // ZIP 多模块：解压出每个文件作为 Worker 模块上传（与 wrangler 本地解包一致）
+      if (isZip) {
+        const moduleFiles = await extractZipFiles(content);
+        const mainName = resolveMainModule(moduleFiles, src.mainModule);
+        const mainFile = moduleFiles.find(m => m.path === mainName);
+        if (!mainFile) {
+          throw new Error(
+            `main_module "${mainName}" not found in zip (available: ${moduleFiles.map(m => m.path).join(', ')})`,
+          );
+        }
+        console.log(`[Deploy] ZIP extracted: ${moduleFiles.length} files, main=${mainName} (${mainFile.buffer.length} bytes)`);
+        workerInit.main = {
+          name: mainName,
+          content: mainFile.buffer,
+          type: 'esm',
+        };
+        workerInit.modules = moduleFiles
+          .filter(m => m.path !== mainName)
+          .map(m => ({
+            name: m.path,
+            content: m.buffer,
+            type: /\.(m?js|cjs)$/i.test(m.path) ? 'esm' as const : 'text' as const,
+          }));
+      }
 
       // Handle assets
       let assetsOpts: import('./workerDeploy').DeployWorkerOptions['assets'];
@@ -298,14 +325,14 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
         }
       }
 
-      await deployWorker(account, encryptionKey, name, content, workerInit, {
+      await deployWorker(account, encryptionKey, name, isZip ? null : content, workerInit, {
         bindings: resolvedBindings.map(b => b.cfBinding),
         traces: traces !== false,
         logs: logs !== false,
         createDeployment: true,
         enableSubdomain: true,
         assets: assetsOpts,
-        useVersionsApi: false,
+        useVersionsApi: true, // 对标 wrangler：默认使用 Versions API（首次部署时内部会回退到 PUT）
       });
 
       const sub = await getWorkerSubdomain(account, encryptionKey);

@@ -94,6 +94,7 @@ export function getContentType(filename: string): string {
     js: 'application/javascript; charset=utf-8', mjs: 'application/javascript; charset=utf-8',
     json: 'application/json; charset=utf-8', xml: 'application/xml; charset=utf-8',
     txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8',
+    webmanifest: 'application/manifest+json',
     svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
     gif: 'image/gif', ico: 'image/x-icon', webp: 'image/webp', avif: 'image/avif',
     bmp: 'image/bmp', tiff: 'image/tiff',
@@ -104,7 +105,7 @@ export function getContentType(filename: string): string {
     pdf: 'application/pdf', wasm: 'application/wasm',
     map: 'application/json',
   };
-  return types[ext] || 'application/octet-stream';
+  return types[ext] || 'application/null';
 }
 
 // ============ BLAKE3 资产哈希（与 backend workerService.computeStaticAssetHash / wrangler 同款）============
