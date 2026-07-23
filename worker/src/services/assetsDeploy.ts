@@ -1,6 +1,6 @@
 import type { Account } from '../db/models';
 import { cfFetch, cfFetchRaw } from './cfApi';
-import { computeStaticAssetHash, extractZipFiles, uint8ToBase64 } from './staticAssets';
+import { computeStaticAssetHash, extractZipFiles, uint8ToBase64, getContentType } from './staticAssets';
 
 // 递归展开 error.cause 链，拼出完整原因。fetch 失败时顶层 message 常为 "fetch failed"，
 // 真正原因（ECONNRESET / ETIMEDOUT / ENOTFOUND / certificate ...）藏在 err.cause 里。
@@ -20,7 +20,7 @@ export function describeError(err: any): string {
 
 
 // 推断多模块入口文件名（对称于 backend resolveMainModule）
-function resolveMainModule(modules: Array<{ path: string; buffer: Uint8Array }> | null, explicit?: string): string {
+export function resolveMainModule(modules: Array<{ path: string; buffer: Uint8Array }> | null, explicit?: string): string {
   if (explicit) return explicit;
   if (!modules || modules.length === 0) return 'worker.js';
   const conf = modules.find(m => /^wrangler\.(toml|jsonc|json)$/i.test(m.path));
@@ -63,9 +63,13 @@ async function deployWorkerAssets(
   const manifest = await buildAssetsManifest(files);
   // 预计算 hash → buffer 映射，用于按 buckets 选择性上传
   const hashToBuffer = new Map<string, Uint8Array>();
+  const hashToPath = new Map<string, string>();
   for (const f of files) {
     const hash = await computeStaticAssetHash(f.buffer, f.path);
-    if (!hashToBuffer.has(hash)) hashToBuffer.set(hash, f.buffer);
+    if (!hashToBuffer.has(hash)) {
+      hashToBuffer.set(hash, f.buffer);
+      hashToPath.set(hash, f.path);
+    }
   }
   const sessionResp: any = await cfFetch(account, `/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`, encryptionKey, {
     method: 'POST', body: JSON.stringify({ manifest }), headers: { 'User-Agent': 'wrangler/4.112.0' },
@@ -83,23 +87,24 @@ async function deployWorkerAssets(
   }
 
   // 按 buckets 分批上传：每个 bucket 是一批需要一起上传的 hash 列表
+  // 每批次上传后 CF 返回新的 JWT，下一批次必须用新 JWT（对标 wrangler syncAssets）
   const totalHashes = buckets.reduce((n, b) => n + b.length, 0);
   console.log(`[Worker Assets] Uploading ${totalHashes} assets in ${buckets.length} bucket(s)`);
-  let completionJwt: string | undefined;
+  let completionJwt = sessionJwt;
   for (let bi = 0; bi < buckets.length; bi++) {
     const bucket = buckets[bi];
     const upForm = new FormData();
     for (const hash of bucket) {
       const buf = hashToBuffer.get(hash);
       if (!buf) { console.warn(`[Worker Assets] Hash ${hash} not found in local files, skipping`); continue; }
-      upForm.append(hash, new Blob([uint8ToBase64(buf)], { type: 'application/octet-stream' }), hash);
+      upForm.append(hash, new Blob([uint8ToBase64(buf)], { type: getContentType(hashToPath.get(hash) || '') }), hash);
     }
     const upResp = await fetch(`${CF_API_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
-      method: 'POST', headers: { Authorization: `Bearer ${sessionJwt}`, 'User-Agent': 'wrangler/4.112.0' }, body: upForm,
+      method: 'POST', headers: { Authorization: `Bearer ${completionJwt}`, 'User-Agent': 'wrangler/4.112.0' }, body: upForm,
     });
-    if (!upResp.ok) { const txt = await upResp.text(); throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (uploadJwtLen=${sessionJwt!.length})`); }
+    if (!upResp.ok) { const txt = await upResp.text(); throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (jwtLen=${completionJwt.length})`); }
     const upJson = await upResp.json() as any;
-    completionJwt = upJson.jwt ?? upJson.result?.jwt;
+    if (upJson.result?.jwt) completionJwt = upJson.result.jwt;
   }
   if (!completionJwt) throw new Error(`assets upload response missing completion jwt`);
   return { jwt: completionJwt };
@@ -179,7 +184,7 @@ export async function deployWorker(
     }
     for (const m of moduleFiles) {
       const isJs = /\.(m?js|cjs)$/i.test(m.path);
-      form.append(m.path, new Blob([m.buffer], { type: isJs ? 'application/javascript+module' : 'application/octet-stream' }), m.path);
+      form.append(m.path, new Blob([m.buffer], { type: isJs ? 'application/javascript+module' : getContentType(m.path) }), m.path);
     }
   } else {
     form.append('worker.js', new Blob([content], { type: 'application/javascript+module' }), 'worker.js');

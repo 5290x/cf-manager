@@ -1,6 +1,6 @@
 import type { Account } from '../../db/models';
 import { getDeployHeaders } from './headers';
-import { computeStaticAssetHash, uint8ToBase64 } from '../staticAssets';
+import { computeStaticAssetHash, uint8ToBase64, getContentType } from '../staticAssets';
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
 const MAX_RETRIES = 3;
@@ -50,9 +50,13 @@ export async function deployWorkerAssets(
   // 预计算 hash → buffer 映射，用于按 buckets 选择性上传
   const manifest = await buildAssetsManifest(files);
   const hashToBuffer = new Map<string, Uint8Array>();
+  const hashToPath = new Map<string, string>();
   for (const f of files) {
     const hash = await computeStaticAssetHash(f.buffer, f.path);
-    if (!hashToBuffer.has(hash)) hashToBuffer.set(hash, f.buffer);
+    if (!hashToBuffer.has(hash)) {
+      hashToBuffer.set(hash, f.buffer);
+      hashToPath.set(hash, f.path);
+    }
   }
 
   // Stage 1: assets-upload-session
@@ -80,9 +84,10 @@ export async function deployWorkerAssets(
   }
 
   // Stage 2: 按 buckets 分批上传
+  // 每批次上传后 CF 返回新的 JWT，下一批次必须用新 JWT（对标 wrangler syncAssets）
   const totalHashes = buckets.reduce((n, b) => n + b.length, 0);
   console.log(`[Worker Assets] Uploading ${totalHashes} assets in ${buckets.length} bucket(s)`);
-  let completionJwt: string | undefined;
+  let completionJwt = sessionJwt;
   for (let bi = 0; bi < buckets.length; bi++) {
     const bucket = buckets[bi];
     const upForm = new FormData();
@@ -92,21 +97,25 @@ export async function deployWorkerAssets(
         console.warn(`[Worker Assets] Hash ${hash} not found in local files, skipping`);
         continue;
       }
-      upForm.append(hash, new Blob([uint8ToBase64(buf)], { type: 'application/octet-stream' }), hash);
+      // MIME 类型至关重要：CF 按此值设置响应 Content-Type。
+      // 用 octet-stream 会导致浏览器拒绝加载 JS 模块。
+      const filePath = hashToPath.get(hash) || '';
+      const ct = getContentType(filePath);
+      upForm.append(hash, new Blob([uint8ToBase64(buf)], { type: ct }), hash);
     }
     const upResp = await withRetry(() =>
       fetch(`${CF_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${sessionJwt}`, 'User-Agent': 'wrangler/4.112.0' },
+        headers: { Authorization: `Bearer ${completionJwt}`, 'User-Agent': 'wrangler/4.112.0' },
         body: upForm,
       }),
     );
     if (!upResp.ok) {
       const txt = await upResp.text();
-      throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (uploadJwtLen=${sessionJwt.length})`);
+      throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (jwtLen=${completionJwt.length})`);
     }
     const upJson = await upResp.json() as any;
-    completionJwt = upJson.jwt ?? upJson.result?.jwt;
+    if (upJson.result?.jwt) completionJwt = upJson.result.jwt;
   }
   if (!completionJwt) throw new Error(`assets upload response missing completion jwt`);
   return { jwt: completionJwt };

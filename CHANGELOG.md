@@ -1,20 +1,38 @@
 # Changelog
 
-## [1.3.7] - 2026-07-22
+## [1.3.7] - 2026-07-23
 
 ### 🚀 新特性
 
 - **Deploy Service 独立模块化**：将 Catalog 部署逻辑从 `catalogDeploy.ts` 重构为独立的 `deploy/` 子模块（backend + worker 双端对称），包含 `preflight.ts`、`workerDeploy.ts`、`pagesDeploy.ts`、`triggers.ts`、`assetsUpload.ts`、`uploadForm.ts`、`headers.ts`、`types.ts` 共 9 个子文件。
   - 部署 API 调用注入 `User-Agent: wrangler/4.112.0`，使 CF 识别为 wrangler 部署。
-  - Worker 部署支持 Versions API（已存在 Worker）和传统 PUT（新 Worker）双路径。
+  - Worker 部署默认使用 Versions API（对标 wrangler），首次部署自动回退到传统 PUT。
   - Pages 部署实现 JWT 自动刷新、Hash 校验、分批上传及部署状态轮询。
   - Catalog Schema 扩展支持 Durable Objects、Service、Queue 绑定及 Migrations、Placement、Limits、Tail Consumers 等高级配置。
 - **两阶段部署流程**：新增 `POST /api/store/preflight` 预检端点（backend + worker 对称），在用户确认部署前检查 Worker 存在性、配置差异（Config Diff）、Secrets 覆盖情况。
-  - 前端 `StoreDeployDialog` 改造为自动预检流程：点击「确认部署」时自动先预检，无问题则直接部署，有配置差异或警告时展示结果等待用户二次确认。
+  - 前端 `StoreDeployDialog` 改造为自动预检流程：点击「确认部署」时自动先预检，无问题则直接部署，有配置差异或警告时展示结果等待用户二次确认；表单任何变更自动使预检结果失效。
+- **ZIP 多模块部署**：部署 ZIP 产物时自动解包为多模块上传（对标 wrangler 本地解包），自动推断 main_module，非入口 JS 文件作为附属模块。
+- **自定义域名 / 路由 Zone 选择器**：Worker 和 Pages 设置抽屉的域名绑定改为 Zone 下拉选择 + 子域名前缀输入 + 实时预览（如选 `example.com` + 输入 `api` → 预览 `api.example.com`），替代易出错的手动全文输入；路由 tab 的 Zone ID 同步改为 Zone 下拉选择，添加路由时自动建议 Pattern。
+- **Pages 部署批量删除**：Pages 部署历史支持全选 / 批量删除，删除前弹窗确认并高亮警示生产环境部署。
+- **Catalog Schema `run_worker_first`**：assets 配置支持 `run_worker_first` 路径前缀数组，指定由 Worker 优先处理的路径（如 `["/api/*"]`），避免被静态资源层拦截。
+
+### 🐛 修复
+
+- **Multipart 上传 Content-Length 不匹配**：手动构建 `multipart/form-data` body（`Buffer.concat`）替代 `FormData` + undici 自动序列化，精确控制每个 part 字节，解决 undici 在计算 Content-Length 时与实际 body 不一致导致 CF API 返回截断响应（`UND_ERR_RES_CONTENT_LENGTH_MISMATCH`）。
+- **静态资源 MIME 类型**：assets 上传时按文件扩展名设置正确 Content-Type（如 `.js` → `application/javascript`），修复之前统一用 `octet-stream` 导致浏览器拒绝加载 JS 模块；默认 Content-Type 改为 `application/null`（对标 wrangler）；新增 `.webmanifest` 支持。
+- **Assets 上传 JWT 分批刷新**：每个 bucket 上传后使用 CF 返回的新 JWT 作为下一批次的认证 token（对标 wrangler `syncAssets`），修复之前所有批次共用 session JWT 导致后续批次认证失败。
+- **上传重试机制**：Worker 部署新增 `withRetry` 包装，遇到 `UND_ERR_RES_CONTENT_LENGTH_MISMATCH`、`UND_ERR_SOCKET`、`ECONNRESET`、`EPIPE` 等可重试错误时指数退避重试（最多 3 次）。
+- **observability 上传方式**：observability 配置在上传 metadata 中一并设置（对标 wrangler），不再依赖后续 PATCH `script-settings`。
+- **keep_bindings 类型修正**：CF API 期望 `keep_bindings` 为要保留的绑定类型字符串数组（如 `["kv_namespace", "d1", ...]`），修正之前传 boolean 的问题。
 
 ### ♻️ 重构
 
 - **catalogDeploy.ts 精简**：部署逻辑全部迁移至 `deploy/` 模块，`catalogDeploy.ts` 仅保留 re-export 维持向后兼容。
+- **uploadForm.ts 手动构建 multipart**：使用 `Buffer.concat` 精确拼接 multipart body，替代 `FormData` + Blob 自动序列化，确保 Content-Length 完全确定。
+
+### 📝 文档
+
+- **README 合规整改**：新增免责声明与合规提示前置区块，明确仅限学习研究及已授权自有账户运维使用；弱化套利相关措辞；补充 Global API Key 安全风险提示；演示站增加滥用警示。
 
 ## [1.3.6] - 2026-07-21
 

@@ -45,6 +45,7 @@ export interface AssetsUpload {
   config?: {
     html_handling?: string;
     not_found_handling?: string;
+    run_worker_first?: string[];
   };
 }
 

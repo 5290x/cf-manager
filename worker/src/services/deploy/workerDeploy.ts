@@ -5,6 +5,27 @@ import { deployWorkerAssets } from './assetsUpload';
 import type { CfWorkerInit } from './types';
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
+const MAX_RETRIES = 3;
+
+// 上传重试：网络抖动 / 响应截断时可自动重试
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = MAX_RETRIES): Promise<T> {
+  let lastErr: any;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+      const isRetryable = e.code === 'UND_ERR_RES_CONTENT_LENGTH_MISMATCH'
+        || e.code === 'UND_ERR_SOCKET'
+        || e.code === 'ECONNRESET'
+        || e.code === 'EPIPE';
+      if (!isRetryable || i >= maxAttempts - 1) throw e;
+      console.warn(`[Worker Deploy] Retry ${i + 1}/${maxAttempts} after: ${e.code || e.message}`);
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+    }
+  }
+  throw lastErr;
+}
 
 export interface DeployWorkerOptions {
   bindings?: Record<string, unknown>[];
@@ -15,7 +36,7 @@ export interface DeployWorkerOptions {
   assets?: {
     files: Array<{ path: string; buffer: Uint8Array }>;
     binding?: string;
-    config?: { html_handling?: string; not_found_handling?: string };
+    config?: { html_handling?: string; not_found_handling?: string; run_worker_first?: string[] };
   };
 }
 
@@ -35,7 +56,7 @@ export async function deployWorker(
   account: Account,
   encryptionKey: string,
   name: string,
-  scriptContent: Uint8Array | string,
+  scriptContent: Uint8Array | string | null,
   workerInit: Partial<CfWorkerInit>,
   options?: DeployWorkerOptions & {
     useVersionsApi?: boolean;
@@ -61,15 +82,19 @@ export async function deployWorker(
   }
 
   // 3. 组装 CfWorkerInit
-  const contentBytes = typeof scriptContent === 'string'
+  // 若 workerInit.main 已由上层设置（zip 多模块场景），直接使用；否则用 scriptContent
+  if (!workerInit.main?.content && scriptContent === null) {
+    throw new Error('Either workerInit.main.content or scriptContent must be provided');
+  }
+  const fallbackContent = typeof scriptContent === 'string'
     ? new TextEncoder().encode(scriptContent)
-    : new Uint8Array(scriptContent);
+    : scriptContent ? new Uint8Array(scriptContent) : new Uint8Array(0);
 
   const worker: CfWorkerInit = {
     name,
     main: {
       name: workerInit.main?.name || 'worker.js',
-      content: contentBytes,
+      content: workerInit.main?.content ?? fallbackContent,
       type: workerInit.main?.type || 'esm',
     },
     modules: workerInit.modules || [],
@@ -88,11 +113,12 @@ export async function deployWorker(
       jwt: assetsJwt,
       config: options?.assets?.config,
     } : undefined,
-    observability: undefined,
+    observability: { enabled: true },
   };
 
-  // 4. 构建上传表单
-  const form = createWorkerUploadForm(worker, metadataBindings);
+  // 4. 构建上传表单（手动 multipart，避免 undici FormData Content-Length 计算不准）
+  const { body: formBody, contentType: formContentType } = createWorkerUploadForm(worker, metadataBindings);
+  console.log(`[Worker Deploy] Upload form: ${formBody.length} bytes, main=${worker.main.name}, modules=${worker.modules.length}`);
 
   // 5. 上传到 Cloudflare
   const useVersionsApi = options?.useVersionsApi ?? false;
@@ -100,62 +126,30 @@ export async function deployWorker(
   let versionId: string | undefined;
 
   if (useVersionsApi) {
-    // Path A: Versions API
-    const versionResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions`, {
-      method: 'POST',
+    // Path A: Versions API（对标 wrangler：先检查 script 是否存在）
+    // Versions API 只能对已存在的 script 创建版本，首次部署必须先 PUT 创建
+    const checkResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+      method: 'GET',
       headers: { ...deployHeaders },
-      body: form,
     });
-    const versionJson = await versionResp.json() as any;
-    if (!versionResp.ok || !versionJson.success) {
-      throw new Error(`Version upload failed: ${versionResp.status} ${JSON.stringify(versionJson)}`);
-    }
-    versionId = versionJson?.result?.id;
-
-    if (versionId && options?.createDeployment !== false) {
-      const depResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...deployHeaders },
-        body: JSON.stringify({
-          strategy: 'percentage',
-          versions: [{ percentage: 100, version_id: versionId }],
+    if (checkResp.status === 404) {
+      // Script 不存在，首次 PUT 创建（对标 wrangler 首次部署）
+      console.log(`[Worker Deploy] Script ${name} does not exist, creating via PUT`);
+      const createResp = await withRetry(() =>
+        fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+          method: 'PUT',
+          headers: { ...deployHeaders, 'Content-Type': formContentType },
+          body: formBody,
         }),
-      });
-      if (!depResp.ok) {
-        const depTxt = await depResp.text();
-        console.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
+      );
+      respJson = await createResp.json() as any;
+      if (!createResp.ok || !respJson.success) {
+        throw new Error(`Script creation failed: ${createResp.status} ${JSON.stringify(respJson)}`);
       }
-    }
-
-    respJson = versionJson;
-  } else {
-    // Path B: Legacy PUT
-    const resp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
-      method: 'PUT',
-      headers: { ...deployHeaders },
-      body: form,
-    });
-    respJson = await resp.json() as any;
-    if (!resp.ok || !respJson.success) {
-      throw new Error(`${resp.status} ${JSON.stringify(respJson)}`);
-    }
-    versionId = respJson?.result?.version_id || respJson?.result?.version?.id;
-
-    if (versionId && options?.createDeployment) {
-      try {
-        if (!versionId) {
-          const versionsResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions`, {
-            headers: { ...deployHeaders },
-          });
-          if (versionsResp.ok) {
-            const versionsJson = await versionsResp.json() as any;
-            const versions = versionsJson?.result || [];
-            if (versions.length > 0) {
-              versionId = versions[0]?.id;
-            }
-          }
-        }
-        if (versionId) {
+      versionId = respJson?.result?.version_id;
+      // 首次创建后也尝试创建 deployment（如果有 version_id）
+      if (versionId && options?.createDeployment) {
+        try {
           const depResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...deployHeaders },
@@ -168,11 +162,59 @@ export async function deployWorker(
             const depTxt = await depResp.text();
             console.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
           }
+        } catch (e: any) {
+          console.warn(`[Worker Deploy] Deployment creation warning for ${name}: ${e.message}`);
         }
-      } catch (e: any) {
-        console.warn(`[Worker Deploy] Deployment creation warning for ${name}: ${e.message}`);
       }
+    } else if (!checkResp.ok) {
+      // 非 404 的错误状态（401/403/500 等），不应继续部署
+      const errBody = await checkResp.text();
+      throw new Error(`Script existence check failed: ${checkResp.status} ${errBody.slice(0, 300)}`);
+    } else {
+      // Script 已存在，用 Versions API 创建新版本
+      const versionResp = await withRetry(() =>
+        fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions?bindings_inherit=strict`, {
+          method: 'POST',
+          headers: { ...deployHeaders, 'Content-Type': formContentType },
+          body: formBody,
+        }),
+      );
+      const versionJson = await versionResp.json() as any;
+      if (!versionResp.ok || !versionJson.success) {
+        throw new Error(`Version upload failed: ${versionResp.status} ${JSON.stringify(versionJson)}`);
+      }
+      versionId = versionJson?.result?.id;
+
+      if (versionId && options?.createDeployment !== false) {
+        const depResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...deployHeaders },
+          body: JSON.stringify({
+            strategy: 'percentage',
+            versions: [{ percentage: 100, version_id: versionId }],
+          }),
+        });
+        if (!depResp.ok) {
+          const depTxt = await depResp.text();
+          console.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
+        }
+      }
+      respJson = versionJson;
     }
+  } else {
+    // Path B: Legacy PUT（PUT 已自动部署脚本，无需再创建 deployment）
+    const resp = await withRetry(() =>
+      fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+        method: 'PUT',
+        headers: { ...deployHeaders, 'Content-Type': formContentType },
+        body: formBody,
+      }),
+    );
+    respJson = await resp.json() as any;
+    if (!resp.ok || !respJson.success) {
+      throw new Error(`${resp.status} ${JSON.stringify(respJson)}`);
+    }
+    versionId = respJson?.result?.version_id || respJson?.result?.version?.id;
   }
 
   // 6. 设置可观测性
@@ -204,7 +246,7 @@ export async function deployWorker(
       await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/subdomain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...deployHeaders },
-        body: JSON.stringify({ enabled: true, previews_enabled: true }),
+        body: JSON.stringify({ enabled: true }),
       });
     } catch {
       // Soft fail
