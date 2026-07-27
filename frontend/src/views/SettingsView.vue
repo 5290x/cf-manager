@@ -42,7 +42,8 @@
           <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
         </n-input-group>
         <n-text depth="3" style="font-size: 12px">
-          支持 HTTP/HTTPS 和 SOCKS5 代理协议。所有 Cloudflare API 请求（SDK + 原生 fetch）均会通过此代理。
+          支持 HTTP/HTTPS 和 SOCKS5 代理协议。此开关仅控制全局默认代理。
+          可在「账号管理」中为每个账户单独配置专属代理地址和独立开关，账户开关不受此全局开关影响。
         </n-text>
       </n-space>
     </n-card>

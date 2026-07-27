@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   enabled_features TEXT DEFAULT 'ai,workers,browser_render,dns,storage',
   password        TEXT,
   available_features TEXT DEFAULT '',
+  proxy_url       TEXT DEFAULT '',
+  proxy_enabled   INTEGER DEFAULT 0,
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -38,11 +38,21 @@
       :data="accountStore.accounts"
       :loading="accountStore.loading"
       :bordered="false"
-      :scroll-x="700"
+      :scroll-x="1200"
       :pagination="paginationConfig"
       :remote="true"
       :row-key="(row: any) => row.id"
+      v-model:checked-row-keys="checkedRowKeys"
     />
+
+    <!-- 批量操作栏 -->
+    <n-space v-if="checkedRowKeys.length > 0" align="center" :size="8" style="margin-top: 12px; padding: 10px 12px; background: var(--info-color-suppl); border-radius: 6px;">
+      <n-text strong style="color: #fff">已选 {{ checkedRowKeys.length }} 项</n-text>
+      <n-button size="small" @click="openBatchFeatures">批量设置功能</n-button>
+      <n-button v-if="!isWorkerPlatform" size="small" @click="openBatchProxy">批量设置代理</n-button>
+      <n-button size="small" type="error" @click="showBatchDeleteConfirm = true">批量删除</n-button>
+      <n-button size="small" quaternary @click="checkedRowKeys = []" style="color: #fff">取消选择</n-button>
+    </n-space>
 
     <n-modal v-model:show="showAddModal" preset="dialog" :title="editingId === null ? '添加账号' : '编辑账号'" style="width: 500px; max-width: 95vw">
       <n-form :model="form" label-placement="left" label-width="100">
@@ -84,6 +94,25 @@
       <template #action>
         <n-button @click="showFeatureModal = false">取消</n-button>
         <n-button type="primary" :loading="submitting" @click="handleSaveFeatures">保存</n-button>
+      </template>
+    </n-modal>
+
+    <!-- 单个账户代理设置 -->
+    <n-modal v-model:show="showProxyModal" preset="dialog" title="设置账户代理" style="width: 460px; max-width: 95vw">
+      <n-form label-placement="left" label-width="90">
+        <n-form-item label="代理 URL">
+          <n-input v-model:value="proxyForm.proxy_url" placeholder="可选，为该账户指定专属代理（如 http://127.0.0.1:7890）" clearable />
+        </n-form-item>
+        <n-form-item label="启用代理">
+          <n-switch v-model:value="proxyForm.proxy_enabled" :disabled="!proxyForm.proxy_url" />
+          <n-text depth="3" style="margin-left: 8px; font-size: 12px">
+            {{ proxyForm.proxy_enabled ? '该账户将通过专属代理访问 Cloudflare API' : proxyForm.proxy_url ? '已关闭，将使用全局代理或直连' : '请先填写代理 URL' }}
+          </n-text>
+        </n-form-item>
+      </n-form>
+      <template #action>
+        <n-button @click="showProxyModal = false">取消</n-button>
+        <n-button type="primary" :loading="submitting" @click="handleSaveProxy">保存</n-button>
       </template>
     </n-modal>
 
@@ -196,6 +225,14 @@
                 :style="{ fontFamily: 'monospace' }"
               />
             </n-descriptions-item>
+            <n-descriptions-item v-if="!isWorkerPlatform" label="代理 URL">
+              <n-text :style="{ fontFamily: 'monospace' }">{{ credData.proxy_url || '—' }}</n-text>
+            </n-descriptions-item>
+            <n-descriptions-item v-if="!isWorkerPlatform && credData.proxy_url" label="代理状态">
+              <n-tag :type="credData.proxy_enabled ? 'success' : 'default'" size="small">
+                {{ credData.proxy_enabled ? '已启用' : '已关闭' }}
+              </n-tag>
+            </n-descriptions-item>
           </n-descriptions>
         </n-space>
       </n-spin>
@@ -203,15 +240,87 @@
         <n-button @click="showCredModal = false">关闭</n-button>
       </template>
     </n-modal>
+
+    <!-- 批量设置功能 -->
+    <n-modal v-model:show="showBatchFeaturesModal" preset="dialog" title="批量设置功能开关" style="width: 420px; max-width: 95vw">
+      <n-checkbox-group v-model:value="batchFeatures">
+        <n-space vertical>
+          <n-checkbox v-for="f in featureOptions" :key="f.value" :value="f.value" :label="f.label" />
+        </n-space>
+      </n-checkbox-group>
+      <template #action>
+        <n-button @click="showBatchFeaturesModal = false">取消</n-button>
+        <n-button type="primary" :loading="batchOperating" @click="handleBatchFeatures">确认设置 ({{ checkedRowKeys.length }} 个账户)</n-button>
+      </template>
+    </n-modal>
+
+    <!-- 批量设置代理 -->
+    <n-modal v-model:show="showBatchProxyModal" preset="dialog" title="批量设置代理" style="width: 460px; max-width: 95vw">
+      <n-form label-placement="left" label-width="90">
+        <n-form-item label="代理 URL">
+          <n-input v-model:value="batchProxyUrl" placeholder="留空则不清除已有代理设置" clearable />
+        </n-form-item>
+        <n-form-item label="启用代理">
+          <n-switch v-model:value="batchProxyEnabled" />
+          <n-text depth="3" style="margin-left: 8px; font-size: 12px">{{ batchProxyEnabled ? '开启' : '关闭' }}</n-text>
+        </n-form-item>
+        <n-alert type="info" :bordered="false" style="margin-top: 8px">
+          如果 URL 留空，仅更新开关状态；URL 不为空时两者同时生效。
+        </n-alert>
+      </n-form>
+      <template #action>
+        <n-button @click="showBatchProxyModal = false">取消</n-button>
+        <n-button type="primary" :loading="batchOperating" @click="handleBatchProxy">确认设置 ({{ checkedRowKeys.length }} 个账户)</n-button>
+      </template>
+    </n-modal>
+
+    <!-- 批量删除确认 -->
+    <n-modal v-model:show="showBatchDeleteConfirm" preset="dialog" title="批量删除确认" type="error" style="width: 440px; max-width: 95vw">
+      <n-alert type="error" :bordered="false">
+        确定要删除选中的 <strong>{{ checkedRowKeys.length }}</strong> 个账户吗？此操作不可恢复。
+      </n-alert>
+      <template #action>
+        <n-button @click="showBatchDeleteConfirm = false">取消</n-button>
+        <n-button type="error" :loading="batchOperating" @click="handleBatchDelete">确认删除</n-button>
+      </template>
+    </n-modal>
+
+    <!-- 批量操作结果 -->
+    <n-modal v-model:show="showBatchOpResult" preset="dialog" title="批量操作结果" style="width: 700px; max-width: 95vw">
+      <n-space vertical :size="16">
+        <n-space>
+          <n-statistic label="总计" :value="batchOpResult?.summary.total ?? 0" />
+          <n-statistic label="成功" :value="batchOpResult?.summary.success ?? 0" />
+          <n-statistic label="跳过" :value="batchOpResult?.summary.skipped ?? 0" />
+          <n-statistic label="失败" :value="batchOpResult?.summary.error ?? 0" />
+        </n-space>
+        <n-data-table
+          v-if="batchOpResult"
+          :columns="batchOpResultColumns"
+          :data="batchOpResult.results"
+          :bordered="false"
+          size="small"
+          :max-height="300"
+        />
+      </n-space>
+      <template #action>
+        <n-button type="primary" @click="showBatchOpResult = false">关闭</n-button>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, h, computed, onMounted } from 'vue';
-import { NButton, NSpace, NProgress, NTag, NPopconfirm, useMessage } from 'naive-ui';
+import { NButton, NSpace, NProgress, NTag, NDropdown, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import type { UploadFileInfo } from 'naive-ui';
 import { useAccountStore } from '../stores/accountStore';
+import { accountsApi } from '../api/accounts';
+import { dialog } from '../utils/discreteApi';
+import { settingsApi } from '../api/settings';
+
+type BatchOpResult = { summary: { total: number; success: number; skipped: number; error: number }; results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> };
 
 const accountStore = useAccountStore();
 const message = useMessage();
@@ -230,7 +339,44 @@ const importFileList = ref<UploadFileInfo[]>([]);
 const importResult = ref<{ summary: { total: number; success: number; skipped: number; error: number }; results: Array<{ email: string; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> } | null>(null);
 const editingAccountId = ref<number | null>(null);
 const editFeatures = ref<string[]>([]);
+
+// 单账户代理设置
+const showProxyModal = ref(false);
+const proxyAccountId = ref<number | null>(null);
+const proxyForm = ref({ proxy_url: '', proxy_enabled: false });
 const searchInput = ref('');
+
+// Worker 平台不支持代理
+const isWorkerPlatform = ref(false);
+
+// 批量操作状态
+const checkedRowKeys = ref<number[]>([]);
+const batchOperating = ref(false);
+const showBatchFeaturesModal = ref(false);
+const batchFeatures = ref<string[]>(['ai', 'workers', 'browser_render', 'dns', 'storage']);
+const showBatchProxyModal = ref(false);
+const batchProxyUrl = ref('');
+const batchProxyEnabled = ref(false);
+const showBatchDeleteConfirm = ref(false);
+const showBatchOpResult = ref(false);
+const batchOpResult = ref<BatchOpResult | null>(null);
+const batchOpResultColumns: DataTableColumns<any> = [
+  { title: 'ID', key: 'id', width: 60 },
+  { title: '名称', key: 'name', width: 150 },
+  {
+    title: '结果', key: 'status', width: 90,
+    render: (row) => {
+      const map: Record<string, { type: any; text: string }> = {
+        success: { type: 'success', text: '成功' },
+        skipped: { type: 'warning', text: '跳过' },
+        error: { type: 'error', text: '失败' },
+      };
+      const m = map[row.status] || { type: 'default', text: row.status };
+      return h(NTag, { size: 'small', type: m.type, bordered: false }, { default: () => m.text });
+    },
+  },
+  { title: '说明', key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
+];
 
 // 查看 API 凭证
 const showCredModal = ref(false);
@@ -244,6 +390,8 @@ const credData = ref<{
   api_token: string | null;
   api_key: string | null;
   password: string | null;
+  proxy_url: string;
+  proxy_enabled: number;
 } | null>(null);
 
 async function handleViewCredentials(row: any) {
@@ -338,10 +486,10 @@ async function handleSubmit() {
     if (rest.auth_type === 'token') {
       if (rest.api_token) payload.api_token = rest.api_token;
     } else {
-      if (rest.api_key) payload.api_key = rest.api_key;
-      if (rest.email) payload.email = rest.email;
-    }
-    if (editingId.value === null) {
+    if (rest.api_key) payload.api_key = rest.api_key;
+    if (rest.email) payload.email = rest.email;
+  }
+  if (editingId.value === null) {
       // 添加模式：凭证必填（后端校验）
       await accountStore.createAccount({ ...payload, enabled_features: features.join(',') });
       message.success('账号添加成功');
@@ -390,6 +538,28 @@ async function handleSaveFeatures() {
   }
 }
 
+function openProxyEditor(row: any) {
+  proxyAccountId.value = row.id;
+  proxyForm.value = { proxy_url: row.proxy_url || '', proxy_enabled: !!row.proxy_enabled };
+  showProxyModal.value = true;
+}
+
+async function handleSaveProxy() {
+  if (proxyAccountId.value == null) return;
+  submitting.value = true;
+  try {
+    await accountStore.updateAccount(proxyAccountId.value, {
+      proxy_url: proxyForm.value.proxy_url,
+      proxy_enabled: proxyForm.value.proxy_enabled ? 1 : 0,
+    });
+    message.success('账户代理已更新');
+    showProxyModal.value = false;
+    await accountStore.fetchAccounts();
+  } finally {
+    submitting.value = false;
+  }
+}
+
 async function handleTest(row: any) {
   await accountStore.testAccount(row.id);
   message.success('连接测试成功');
@@ -421,6 +591,75 @@ async function handleTestBatch() {
   }
 }
 
+// ============ 批量操作 ============
+function openBatchFeatures() {
+  batchFeatures.value = ['ai', 'workers', 'browser_render', 'dns', 'storage'];
+  showBatchFeaturesModal.value = true;
+}
+
+async function handleBatchFeatures() {
+  batchOperating.value = true;
+  try {
+    const { data } = await accountsApi.batchFeatures(checkedRowKeys.value, batchFeatures.value.join(','));
+    batchOpResult.value = data as BatchOpResult;
+    showBatchFeaturesModal.value = false;
+    showBatchOpResult.value = true;
+    checkedRowKeys.value = [];
+    await accountStore.fetchAccounts();
+    const s = batchOpResult.value.summary;
+    message.success(`批量设置功能完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}`);
+  } catch (e: any) {
+    message.error(`批量设置功能失败：${e?.message || e}`);
+  } finally {
+    batchOperating.value = false;
+  }
+}
+
+function openBatchProxy() {
+  batchProxyUrl.value = '';
+  batchProxyEnabled.value = false;
+  showBatchProxyModal.value = true;
+}
+
+async function handleBatchProxy() {
+  batchOperating.value = true;
+  try {
+    const payload: any = {};
+    if (batchProxyUrl.value) payload.proxy_url = batchProxyUrl.value;
+    payload.proxy_enabled = batchProxyEnabled.value ? 1 : 0;
+    const { data } = await accountsApi.batchProxy(checkedRowKeys.value, payload);
+    batchOpResult.value = data as BatchOpResult;
+    showBatchProxyModal.value = false;
+    showBatchOpResult.value = true;
+    checkedRowKeys.value = [];
+    await accountStore.fetchAccounts();
+    const s = batchOpResult.value.summary;
+    message.success(`批量设置代理完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}`);
+  } catch (e: any) {
+    message.error(`批量设置代理失败：${e?.message || e}`);
+  } finally {
+    batchOperating.value = false;
+  }
+}
+
+async function handleBatchDelete() {
+  batchOperating.value = true;
+  try {
+    const { data } = await accountsApi.batchDelete(checkedRowKeys.value);
+    batchOpResult.value = data as BatchOpResult;
+    showBatchDeleteConfirm.value = false;
+    showBatchOpResult.value = true;
+    checkedRowKeys.value = [];
+    await accountStore.fetchAccounts();
+    const s = batchOpResult.value.summary;
+    message.success(`批量删除完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}`);
+  } catch (e: any) {
+    message.error(`批量删除失败：${e?.message || e}`);
+  } finally {
+    batchOperating.value = false;
+  }
+}
+
 const batchResultColumns: DataTableColumns<any> = [
   { title: 'ID', key: 'id', width: 60 },
   { title: '名称', key: 'name', width: 150 },
@@ -441,6 +680,33 @@ const batchResultColumns: DataTableColumns<any> = [
 async function handleDelete(row: any) {
   await accountStore.deleteAccount(row.id);
   message.success('已删除');
+}
+
+// 操作列「更多」下拉菜单路由
+function handleActionMenu(key: string, row: any) {
+  switch (key) {
+    case 'cred':
+      handleViewCredentials(row);
+      break;
+    case 'features':
+      openFeatureEditor(row);
+      break;
+    case 'proxy':
+      openProxyEditor(row);
+      break;
+    case 'clearExhausted':
+      handleClearExhausted(row);
+      break;
+    case 'delete':
+      dialog.warning({
+        title: '删除账户',
+        content: `确定要删除账户 "${row.name}" 吗？此操作不可恢复。`,
+        positiveText: '删除',
+        negativeText: '取消',
+        onPositiveClick: () => handleDelete(row),
+      });
+      break;
+  }
 }
 
 function closeImportModal() {
@@ -489,11 +755,24 @@ function parseFeatures(raw: string | undefined): string[] {
   return (raw || 'ai,workers,browser_render,dns,storage').split(',').filter(Boolean);
 }
 
-const columns: DataTableColumns<any> = [
+const columns = computed<DataTableColumns<any>>(() => {
+  const cols: DataTableColumns<any> = [
+  { type: 'selection', width: 40, fixed: 'left' },
   { title: 'ID', key: 'id', width: 60 },
   { title: '名称', key: 'name', width: 150 },
   { title: 'Account ID', key: 'account_id', width: 180, ellipsis: { tooltip: true }, render: (row) => row.account_id || '-' },
   { title: '认证类型', key: 'auth_type', width: 120, render: (row) => h(NTag, { size: 'small', type: row.auth_type === 'token' ? 'info' : 'warning' }, { default: () => row.auth_type === 'token' ? 'Token' : 'Key' }) },
+  ];
+  // Worker 平台不支持代理，隐藏代理列
+  if (!isWorkerPlatform.value) {
+    cols.push({ title: '代理', key: 'proxy_url', width: 80, align: 'center', render: (row) => {
+      if (!row.proxy_url) return h('span', { style: { color: '#999', fontSize: '12px' } }, '—');
+      return row.proxy_enabled
+        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '已开启' })
+        : h(NTag, { size: 'small', type: 'default', bordered: false }, { default: () => '已关闭' });
+    }});
+  }
+  cols.push(
   {
     title: '功能', key: 'enabled_features', width: 220,
     render: (row) => {
@@ -541,7 +820,7 @@ const columns: DataTableColumns<any> = [
     ]);
   }},
   {
-    title: '操作', key: 'actions', width: 300,
+    title: '操作', key: 'actions', width: 200, fixed: 'right',
     render: (row) => {
       const isExhausted = (() => {
         const quotaItem = accountStore.quota.find((q: any) => q.accountId === row.id);
@@ -549,32 +828,34 @@ const columns: DataTableColumns<any> = [
         const aiResource = quotaItem.resources.find((r: any) => r.resource === 'ai_neurons');
         return aiResource?.exhausted;
       })();
+      const moreOptions = [
+        { label: '查看 API 凭证', key: 'cred', disabled: !!row.is_demo },
+        { label: '功能开关', key: 'features', disabled: !!row.is_demo },
+        ...(isWorkerPlatform.value ? [] : [{ label: '设置代理', key: 'proxy', disabled: !!row.is_demo }]),
+        ...(isExhausted ? [{ label: '清除耗尽标记', key: 'clearExhausted', disabled: !!row.is_demo }] : []),
+        { type: 'divider' as const, key: 'd' },
+        { label: '删除账户', key: 'delete', disabled: !!row.is_demo, props: { style: 'color: var(--n-error-color)' } },
+      ];
       return h(NSpace, { size: 4 }, {
         default: () => [
-          row.is_demo
-            ? null
-            : h(NButton, { size: 'small', type: 'info', ghost: true, onClick: () => handleViewCredentials(row) }, { default: () => '查看Key' }),
           h(NButton, { size: 'small', type: 'primary', ghost: true, disabled: row.is_demo, onClick: () => openAccountEditor(row) }, { default: () => '编辑' }),
-          h(NButton, { size: 'small', disabled: row.is_demo, onClick: () => openFeatureEditor(row) }, { default: () => '功能' }),
           h(NButton, { size: 'small', onClick: () => handleTest(row) }, { default: () => '测试' }),
-          isExhausted
-            ? h(NButton, { size: 'small', type: 'warning', disabled: row.is_demo, onClick: () => handleClearExhausted(row) }, { default: () => '清除耗尽' })
-            : null,
-          h(NPopconfirm, {
-            positiveText: '删除',
-            negativeText: '取消',
-            onPositiveClick: () => handleDelete(row),
-          }, {
-            trigger: () => h(NButton, { size: 'small', type: 'error', disabled: row.is_demo }, { default: () => '删除' }),
-            default: () => `确定要删除账户 "${row.name}" 吗？此操作不可恢复。`,
+          h(NDropdown, { options: moreOptions, trigger: 'click', onSelect: (key: string) => handleActionMenu(key, row) }, {
+            default: () => h(NButton, { size: 'small' }, { default: () => '更多' }),
           }),
-        ].filter(Boolean),
+        ],
       });
     },
-  },
-];
+  });
+  return cols;
+});
 
-onMounted(() => {
+onMounted(async () => {
   accountStore.fetchAccounts();
+  // 检测运行平台（Worker 平台不支持代理功能）
+  try {
+    const { data } = await settingsApi.get();
+    isWorkerPlatform.value = data.platform === 'cloudflare-workers';
+  } catch { /* 忽略 */ }
 });
 </script>

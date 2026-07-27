@@ -4,6 +4,7 @@ import type { Agent } from 'http';
 import nodeFetch from 'node-fetch';
 import { config } from '../config';
 import { getSetting, setSetting } from '../db';
+import type { Account } from '../models/account';
 
 export interface FetchResponse {
   ok: boolean;
@@ -19,6 +20,9 @@ export interface FetchResponse {
 let cachedAgent: Agent | undefined;
 let cachedUrl = '';
 
+// Per-account agent cache
+const accountAgentCache = new Map<number, { agent: Agent; url: string }>();
+
 function isSocks(url: string): boolean {
   return /^socks[45h]?:\/\//i.test(url);
 }
@@ -33,6 +37,7 @@ export function setProxyEnabled(enabled: boolean): void {
   setSetting('proxy_enabled', enabled ? '1' : '0');
   cachedAgent = undefined;
   cachedUrl = '';
+  accountAgentCache.clear();
 }
 
 export function getProxyUrl(): string {
@@ -45,6 +50,21 @@ export function setProxyUrl(url: string): void {
   setSetting('proxy_url', url);
   cachedAgent = undefined;
   cachedUrl = '';
+  accountAgentCache.clear();
+}
+
+/**
+ * 获取指定账户的代理 URL
+ * 优先级：账户专属代理 > 全局代理（设置页） > 环境变量 PROXY_URL
+ * 返回空字符串表示不使用代理
+ */
+export function getAccountProxyUrl(account?: Account | null): string {
+  // 1. 优先使用账户专属代理
+  if (account?.proxy_url && account.proxy_url.trim()) {
+    return account.proxy_url.trim();
+  }
+  // 2. 回退到全局代理
+  return getProxyUrl();
 }
 
 export function getHttpAgent(): Agent | undefined {
@@ -60,9 +80,44 @@ export function getHttpAgent(): Agent | undefined {
   return cachedAgent;
 }
 
-export async function proxyFetch(input: string | URL, init?: any, timeoutMs: number = 300000): Promise<FetchResponse> {
-  const agent = getHttpAgent();
-  
+/**
+ * 获取指定账户的 HTTP Agent（支持账户专属代理）
+ * 账户开关和全局开关互不干扰：
+ * - 账户开关开启 → 使用账户专属代理（不受全局开关影响）
+ * - 账户开关关闭 / 无账户代理 → 回退到全局代理（受全局开关控制）
+ */
+export function getHttpAgentForAccount(account?: Account | null): Agent | undefined {
+  // 1. 账户专属代理：只要账户有 URL 且开关开启，就用它（不受全局开关限制）
+  if (account?.proxy_url && account.proxy_url.trim() && account.proxy_enabled === 1) {
+    const url = account.proxy_url.trim();
+    const accountId = account.id;
+    const cached = accountAgentCache.get(accountId);
+    if (cached && cached.url === url) return cached.agent;
+
+    const agent = isSocks(url)
+      ? new SocksProxyAgent(url, { timeout: 30000 })
+      : new HttpsProxyAgent(url, { timeout: 30000 });
+    accountAgentCache.set(accountId, { agent, url });
+    return agent;
+  }
+
+  // 2. 账户没有专属代理或已关闭 → 回退到全局代理（受全局开关控制）
+  if (!isProxyEnabled()) return undefined;
+  return getHttpAgent();
+}
+
+export async function proxyFetch(input: string | URL, init?: any, timeoutMs: number = 300000, accountProxyUrl?: string): Promise<FetchResponse> {
+  let agent: Agent | undefined;
+
+  // 账户专属代理不受全局开关限制；全局代理受全局开关控制
+  if (accountProxyUrl) {
+    agent = isSocks(accountProxyUrl)
+      ? new SocksProxyAgent(accountProxyUrl, { timeout: 30000 })
+      : new HttpsProxyAgent(accountProxyUrl, { timeout: 30000 });
+  } else if (isProxyEnabled()) {
+    agent = getHttpAgent();
+  }
+
   // Create AbortController for timeout
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,7 +139,15 @@ export async function proxyFetch(input: string | URL, init?: any, timeoutMs: num
     if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
       cachedAgent = undefined;
       cachedUrl = '';
-      const newAgent = getHttpAgent();
+      // 重建 agent 进行重试
+      let newAgent: Agent | undefined;
+      if (accountProxyUrl) {
+        newAgent = isSocks(accountProxyUrl)
+          ? new SocksProxyAgent(accountProxyUrl, { timeout: 30000 })
+          : new HttpsProxyAgent(accountProxyUrl, { timeout: 30000 });
+      } else if (isProxyEnabled()) {
+        newAgent = getHttpAgent();
+      }
       // Retry with new agent
       const retryController = new AbortController();
       const retryTimeoutId = setTimeout(() => retryController.abort(), timeoutMs);

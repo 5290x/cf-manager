@@ -70,7 +70,7 @@ app.post('/', async (c) => {
     return c.json({ error: { code: 'CREDENTIAL_INVALID', message: `无法连接 Cloudflare API: ${e}` } }, 400);
   }
 
-  const input: any = { name, auth_type, account_id, enabled_features };
+  const input: any = { name, auth_type, account_id, enabled_features, proxy_url: body.proxy_url, proxy_enabled: body.proxy_enabled };
   if (auth_type === 'token') {
     input.api_token = await encrypt(api_token, c.env.ENCRYPTION_KEY);
   } else {
@@ -122,12 +122,20 @@ app.put('/:id', async (c) => {
   const existing = await getAccountById(db, id);
   if (!existing) return c.json({ error: { code: 'NOT_FOUND', message: 'Account not found' } }, 404);
 
-  const { name, auth_type, api_token, api_key, email } = await c.req.json();
+  const { name, auth_type, api_token, api_key, email, proxy_url, proxy_enabled } = await c.req.json();
   if (!name || !auth_type) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'name and auth_type are required' } }, 400);
   if (auth_type !== 'token' && auth_type !== 'global_key') return c.json({ error: { code: 'VALIDATION_ERROR', message: 'auth_type must be "token" or "global_key"' } }, 400);
 
   const input: any = { name, auth_type };
   const switching = existing.auth_type !== auth_type;
+
+  // 处理 proxy_url / proxy_enabled（无论是否切换认证类型都允许设置）
+  if (proxy_url !== undefined) {
+    input.proxy_url = proxy_url;
+  }
+  if (proxy_enabled !== undefined) {
+    input.proxy_enabled = proxy_enabled;
+  }
   const CF_BASE = 'https://api.cloudflare.com/client/v4';
 
   if (auth_type === 'token') {
@@ -370,6 +378,96 @@ app.post('/test-batch', async (c) => {
   };
   console.log(`[Account:TestBatch] 批量测试完成: 共 ${summary.total}，成功 ${summary.success}，失败 ${summary.error}`);
   return c.json({ summary, results });
+});
+
+// ============ 批量设置功能开关 ============
+app.post('/batch/features', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const { ids, enabled_features } = body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'ids 必须是非空数组' } }, 400);
+  }
+  if (typeof enabled_features !== 'string') {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'enabled_features 是必填字符串' } }, 400);
+  }
+  const results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> = [];
+  const demoIds = c.env.DEMO_ACCOUNT_IDS;
+  for (const rawId of ids) {
+    const id = parseInt(rawId, 10);
+    if (isNaN(id)) { results.push({ id: rawId, name: '', status: 'error', message: '无效 ID' }); continue; }
+    if (isDemoAccount(id, demoIds)) { results.push({ id, name: '', status: 'skipped', message: '演示账户不可修改' }); continue; }
+    const account = await getAccountById(db, id);
+    if (!account) { results.push({ id, name: '', status: 'error', message: '账户不存在' }); continue; }
+    try {
+      await updateAccount(db, id, { enabled_features });
+      await addAuditLog(db, { account_id: id, action: 'batch_update_features', target: account.name, detail: enabled_features, status: 'success' });
+      results.push({ id, name: account.name, status: 'success' });
+    } catch (e: any) {
+      results.push({ id, name: account.name, status: 'error', message: e?.message || String(e) });
+    }
+  }
+  return c.json({ summary: { total: results.length, success: results.filter(r => r.status === 'success').length, skipped: results.filter(r => r.status === 'skipped').length, error: results.filter(r => r.status === 'error').length }, results });
+});
+
+// ============ 批量删除 ============
+app.post('/batch/delete', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const { ids } = body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'ids 必须是非空数组' } }, 400);
+  }
+  const results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> = [];
+  const demoIds = c.env.DEMO_ACCOUNT_IDS;
+  for (const rawId of ids) {
+    const id = parseInt(rawId, 10);
+    if (isNaN(id)) { results.push({ id: rawId, name: '', status: 'error', message: '无效 ID' }); continue; }
+    if (isDemoAccount(id, demoIds)) { results.push({ id, name: '', status: 'skipped', message: '演示账户不可删除' }); continue; }
+    const account = await getAccountById(db, id);
+    if (!account) { results.push({ id, name: '', status: 'error', message: '账户不存在' }); continue; }
+    try {
+      await addAuditLog(db, { account_id: id, action: 'batch_delete_account', target: account.name, status: 'success' });
+      await deleteAccount(db, id);
+      results.push({ id, name: account.name, status: 'success' });
+    } catch (e: any) {
+      results.push({ id, name: account.name, status: 'error', message: e?.message || String(e) });
+    }
+  }
+  return c.json({ summary: { total: results.length, success: results.filter(r => r.status === 'success').length, skipped: results.filter(r => r.status === 'skipped').length, error: results.filter(r => r.status === 'error').length }, results });
+});
+
+// ============ 批量设置代理 ============
+app.post('/batch/proxy', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const { ids, proxy_url, proxy_enabled } = body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'ids 必须是非空数组' } }, 400);
+  }
+  const updateData: Record<string, any> = {};
+  if (proxy_url !== undefined) updateData.proxy_url = proxy_url;
+  if (proxy_enabled !== undefined) updateData.proxy_enabled = proxy_enabled ? 1 : 0;
+  if (Object.keys(updateData).length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: '至少需要提供 proxy_url 或 proxy_enabled' } }, 400);
+  }
+  const results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> = [];
+  const demoIds = c.env.DEMO_ACCOUNT_IDS;
+  for (const rawId of ids) {
+    const id = parseInt(rawId, 10);
+    if (isNaN(id)) { results.push({ id: rawId, name: '', status: 'error', message: '无效 ID' }); continue; }
+    if (isDemoAccount(id, demoIds)) { results.push({ id, name: '', status: 'skipped', message: '演示账户不可修改' }); continue; }
+    const account = await getAccountById(db, id);
+    if (!account) { results.push({ id, name: '', status: 'error', message: '账户不存在' }); continue; }
+    try {
+      await updateAccount(db, id, updateData);
+      await addAuditLog(db, { account_id: id, action: 'batch_update_proxy', target: account.name, detail: JSON.stringify(updateData), status: 'success' });
+      results.push({ id, name: account.name, status: 'success' });
+    } catch (e: any) {
+      results.push({ id, name: account.name, status: 'error', message: e?.message || String(e) });
+    }
+  }
+  return c.json({ summary: { total: results.length, success: results.filter(r => r.status === 'success').length, skipped: results.filter(r => r.status === 'skipped').length, error: results.filter(r => r.status === 'error').length }, results });
 });
 
 // ============ 批量导入 CSV ============

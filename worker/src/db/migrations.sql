@@ -13,6 +13,8 @@
 ALTER TABLE accounts ADD COLUMN enabled_features TEXT DEFAULT 'ai,workers,browser_render,dns,storage';
 ALTER TABLE accounts ADD COLUMN password TEXT;
 ALTER TABLE accounts ADD COLUMN available_features TEXT DEFAULT '';
+ALTER TABLE accounts ADD COLUMN proxy_url TEXT DEFAULT '';
+ALTER TABLE accounts ADD COLUMN proxy_enabled INTEGER DEFAULT 0;
 
 -- --- quota_usage 表 ---
 ALTER TABLE quota_usage ADD COLUMN optimistic INTEGER DEFAULT 0;

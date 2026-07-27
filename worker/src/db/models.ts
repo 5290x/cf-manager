@@ -11,6 +11,8 @@ export interface Account {
   created_at: string;
   updated_at: string;
   available_features: string;
+  proxy_url: string;
+  proxy_enabled: number;
 }
 
 export type AccountFeature = 'ai' | 'workers' | 'browser_render' | 'dns' | 'storage';
@@ -123,12 +125,13 @@ export async function getAccountById(db: D1Database, id: number): Promise<Accoun
 
 export async function createAccount(db: D1Database, data: {
   name: string; auth_type: string; api_token?: string; api_key?: string;
-  email?: string; account_id?: string; enabled_features?: string;
+  email?: string; account_id?: string; enabled_features?: string; proxy_url?: string; proxy_enabled?: number;
 }): Promise<number> {
   const res = await db.prepare(
-    'INSERT INTO accounts (name, auth_type, api_token, api_key, email, account_id, enabled_features) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO accounts (name, auth_type, api_token, api_key, email, account_id, enabled_features, proxy_url, proxy_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(data.name, data.auth_type, data.api_token || null, data.api_key || null,
-    data.email || null, data.account_id || null, data.enabled_features || 'ai,workers,browser_render,dns,storage').run();
+    data.email || null, data.account_id || null, data.enabled_features || 'ai,workers,browser_render,dns,storage',
+    data.proxy_url || '', data.proxy_enabled ?? 0).run();
   return res.meta.last_row_id;
 }
 

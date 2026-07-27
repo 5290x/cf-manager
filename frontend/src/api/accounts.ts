@@ -28,7 +28,14 @@ export const accountsApi = {
     if (skipVerify) formData.append('skipVerify', '1');
     return apiClient.post('/accounts/import-csv', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 600000, // 10 分钟，并发批处理下足够覆盖数百账户
+      timeout: 600000,
     });
   },
+  // 批量操作
+  batchFeatures: (ids: number[], enabled_features: string) =>
+    apiClient.post('/accounts/batch/features', { ids, enabled_features }),
+  batchDelete: (ids: number[]) =>
+    apiClient.post('/accounts/batch/delete', { ids }),
+  batchProxy: (ids: number[], data: { proxy_url?: string; proxy_enabled?: number }) =>
+    apiClient.post('/accounts/batch/proxy', { ids, ...data }),
 };

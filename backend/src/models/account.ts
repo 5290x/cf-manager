@@ -18,6 +18,8 @@ export interface Account {
   updated_at: string;
   password: string | null;
   available_features: string;
+  proxy_url: string;
+  proxy_enabled: number;
 }
 
 export interface AccountInput {
@@ -30,6 +32,8 @@ export interface AccountInput {
   enabled_features?: string;
   password?: string;
   available_features?: string;
+  proxy_url?: string;
+  proxy_enabled?: number;
 }
 
 export function hasFeature(account: Account, feature: AccountFeature): boolean {
@@ -107,7 +111,7 @@ export function getAccountById(id: number): Account | undefined {
 export function createAccount(input: AccountInput): number {
   const features = input.enabled_features || ALL_FEATURES.join(',');
   const stmt = getDb().prepare(
-    'INSERT INTO accounts (name, auth_type, api_token, api_key, email, account_id, enabled_features, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO accounts (name, auth_type, api_token, api_key, email, account_id, enabled_features, password, proxy_url, proxy_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const result = stmt.run(
     input.name,
@@ -117,7 +121,9 @@ export function createAccount(input: AccountInput): number {
     input.email || null,
     input.account_id || null,
     features,
-    input.password || null
+    input.password || null,
+    input.proxy_url || '',
+    input.proxy_enabled ?? 0
   );
   return result.lastInsertRowid as number;
 }
@@ -133,6 +139,8 @@ export function updateAccount(id: number, input: Partial<AccountInput>): void {
     email: 'email',
     account_id: 'account_id',
     available_features: 'available_features',
+    proxy_url: 'proxy_url',
+    proxy_enabled: 'proxy_enabled',
   };
   for (const [key, val] of Object.entries(input)) {
     if (val !== undefined && fieldMap[key]) {

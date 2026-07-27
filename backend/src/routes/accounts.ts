@@ -91,7 +91,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const input: AccountInput = { name, auth_type, account_id, enabled_features: req.body.enabled_features };
+    const input: AccountInput = { name, auth_type, account_id, enabled_features: req.body.enabled_features, proxy_url: req.body.proxy_url, proxy_enabled: req.body.proxy_enabled };
     if (auth_type === 'token') {
       input.api_token = encrypt(api_token);
     } else {
@@ -158,6 +158,14 @@ router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
 
     const input: Partial<AccountInput> = { name, auth_type };
     const switching = existing.auth_type !== auth_type;
+
+    // 处理 proxy_url / proxy_enabled（无论是否切换认证类型都允许设置）
+    if (req.body.proxy_url !== undefined) {
+      input.proxy_url = req.body.proxy_url;
+    }
+    if (req.body.proxy_enabled !== undefined) {
+      input.proxy_enabled = req.body.proxy_enabled;
+    }
 
     if (auth_type === 'token') {
       if (switching && !api_token) {
@@ -309,6 +317,8 @@ router.get('/:id/credentials', (req: Request, res: Response, next: NextFunction)
       api_key,
       password,
       account_id: account.account_id,
+      proxy_url: account.proxy_url || '',
+      proxy_enabled: account.proxy_enabled || 0,
     });
   } catch (err) { next(err); }
 });
@@ -450,6 +460,101 @@ router.post('/test-batch', async (req: Request, res: Response, next: NextFunctio
     };
     appLogger.info(`[Account:TestBatch] 批量测试完成: 共 ${summary.total}，成功 ${summary.success}，失败 ${summary.error}`);
     res.json({ summary, results });
+  } catch (err) { next(err); }
+});
+
+// ============ 批量设置功能开关 ============
+router.post('/batch/features', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { ids, enabled_features } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'ids 必须是非空数组' } });
+      return;
+    }
+    if (typeof enabled_features !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'enabled_features 是必填字符串' } });
+      return;
+    }
+    const results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> = [];
+    for (const rawId of ids) {
+      const id = parseInt(rawId, 10);
+      if (isNaN(id)) { results.push({ id: rawId, name: '', status: 'error', message: '无效 ID' }); continue; }
+      if (isDemoAccountId(id)) { results.push({ id, name: '', status: 'skipped', message: '演示账户不可修改' }); continue; }
+      const account = getAccountById(id);
+      if (!account) { results.push({ id, name: '', status: 'error', message: '账户不存在' }); continue; }
+      try {
+        updateAccountFeatures(id, enabled_features);
+        createAuditLog(id, 'batch_update_features', account.name, enabled_features, 'success');
+        results.push({ id, name: account.name, status: 'success' });
+      } catch (e: any) {
+        results.push({ id, name: account.name, status: 'error', message: e.message || String(e) });
+      }
+    }
+    clearCache();
+    res.json({ summary: { total: results.length, success: results.filter(r => r.status === 'success').length, skipped: results.filter(r => r.status === 'skipped').length, error: results.filter(r => r.status === 'error').length }, results });
+  } catch (err) { next(err); }
+});
+
+// ============ 批量删除 ============
+router.post('/batch/delete', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'ids 必须是非空数组' } });
+      return;
+    }
+    const results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> = [];
+    for (const rawId of ids) {
+      const id = parseInt(rawId, 10);
+      if (isNaN(id)) { results.push({ id: rawId, name: '', status: 'error', message: '无效 ID' }); continue; }
+      if (isDemoAccountId(id)) { results.push({ id, name: '', status: 'skipped', message: '演示账户不可删除' }); continue; }
+      const account = getAccountById(id);
+      if (!account) { results.push({ id, name: '', status: 'error', message: '账户不存在' }); continue; }
+      try {
+        createAuditLog(id, 'batch_delete_account', account.name, null, 'success');
+        deleteAccount(id);
+        results.push({ id, name: account.name, status: 'success' });
+      } catch (e: any) {
+        results.push({ id, name: account.name, status: 'error', message: e.message || String(e) });
+      }
+    }
+    clearCache();
+    res.json({ summary: { total: results.length, success: results.filter(r => r.status === 'success').length, skipped: results.filter(r => r.status === 'skipped').length, error: results.filter(r => r.status === 'error').length }, results });
+  } catch (err) { next(err); }
+});
+
+// ============ 批量设置代理 ============
+router.post('/batch/proxy', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { ids, proxy_url, proxy_enabled } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'ids 必须是非空数组' } });
+      return;
+    }
+    const updateData: Partial<AccountInput> = {};
+    if (proxy_url !== undefined) updateData.proxy_url = proxy_url;
+    if (proxy_enabled !== undefined) updateData.proxy_enabled = proxy_enabled ? 1 : 0;
+    if (Object.keys(updateData).length === 0) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '至少需要提供 proxy_url 或 proxy_enabled' } });
+      return;
+    }
+    const results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> = [];
+    for (const rawId of ids) {
+      const id = parseInt(rawId, 10);
+      if (isNaN(id)) { results.push({ id: rawId, name: '', status: 'error', message: '无效 ID' }); continue; }
+      if (isDemoAccountId(id)) { results.push({ id, name: '', status: 'skipped', message: '演示账户不可修改' }); continue; }
+      const account = getAccountById(id);
+      if (!account) { results.push({ id, name: '', status: 'error', message: '账户不存在' }); continue; }
+      try {
+        updateAccount(id, updateData);
+        createAuditLog(id, 'batch_update_proxy', account.name, JSON.stringify(updateData), 'success');
+        results.push({ id, name: account.name, status: 'success' });
+      } catch (e: any) {
+        results.push({ id, name: account.name, status: 'error', message: e.message || String(e) });
+      }
+    }
+    clearCache();
+    res.json({ summary: { total: results.length, success: results.filter(r => r.status === 'success').length, skipped: results.filter(r => r.status === 'skipped').length, error: results.filter(r => r.status === 'error').length }, results });
   } catch (err) { next(err); }
 });
 

@@ -1,7 +1,7 @@
 import Cloudflare from 'cloudflare';
 import { Account } from '../models/account';
 import { decrypt } from './encryptionService';
-import { getHttpAgent } from './proxyService';
+import { getHttpAgentForAccount } from './proxyService';
 
 export function getAuthHeaders(account: Account): Record<string, string> {
   if (account.auth_type === 'token') {
@@ -14,7 +14,7 @@ export function getAuthHeaders(account: Account): Record<string, string> {
 }
 
 export function getCfClient(account: Account): Cloudflare {
-  const httpAgent = getHttpAgent();
+  const httpAgent = getHttpAgentForAccount(account);
   const opts: Record<string, any> = {};
   if (httpAgent) opts.httpAgent = httpAgent;
 
