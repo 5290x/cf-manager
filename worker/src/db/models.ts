@@ -242,6 +242,51 @@ export async function getRecentLogs(db: D1Database, limit = 20): Promise<AuditLo
   return results;
 }
 
+export interface LogFilter {
+  action?: string;
+  startDate?: string;  // YYYY-MM-DD
+  endDate?: string;    // YYYY-MM-DD
+  limit?: number;
+}
+
+/** 按条件查询审计日志，支持 action / 日期范围筛选 */
+export async function queryLogs(db: D1Database, filter: LogFilter = {}): Promise<AuditLogRow[]> {
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (filter.action) {
+    conditions.push('l.action = ?');
+    params.push(filter.action);
+  }
+  if (filter.startDate) {
+    conditions.push('date(l.created_at) >= ?');
+    params.push(filter.startDate);
+  }
+  if (filter.endDate) {
+    conditions.push('date(l.created_at) <= ?');
+    params.push(filter.endDate);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limit = filter.limit ?? 100;
+
+  const { results } = await db.prepare(
+    `SELECT l.*, a.name as account_name FROM audit_log l
+     LEFT JOIN accounts a ON l.account_id = a.id
+     ${where}
+     ORDER BY l.created_at DESC LIMIT ?`
+  ).bind(...params, limit).all<AuditLogRow>();
+  return results;
+}
+
+/** 获取所有不重复的操作类型 */
+export async function getDistinctActions(db: D1Database): Promise<string[]> {
+  const { results } = await db.prepare(
+    'SELECT DISTINCT action FROM audit_log ORDER BY action'
+  ).all<{ action: string }>();
+  return results.map(r => r.action);
+}
+
 // ============ Settings ============
 
 export async function getSetting(db: D1Database, key: string): Promise<string | null> {

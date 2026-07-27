@@ -6,7 +6,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { v1ErrorHandler } from './middleware/v1ErrorHandler';
 import { requestIdMiddleware } from './middleware/requestId';
 import { responseWrapper } from './middleware/responseWrapper';
-import { getRecentLogs } from './db/models';
+import { getRecentLogs, queryLogs, getDistinctActions } from './db/models';
 import { getEnabledCatalogSources, updateCatalogSource } from './db/models';
 import { getQuotaSummary, syncUsageFromCloudflare, invalidateAiCache } from './services/quotaTracker';
 import { getFakeNginxPage } from './pages/fakeNginx';
@@ -95,8 +95,20 @@ app.get('/api/quota', async (c) => {
 });
 
 app.get('/api/audit-log', async (c) => {
-  const logs = await getRecentLogs(c.env.DB, 20);
+  const action = c.req.query('action');
+  const startDate = c.req.query('startDate');
+  const endDate = c.req.query('endDate');
+  if (action || startDate || endDate) {
+    const logs = await queryLogs(c.env.DB, { action, startDate, endDate, limit: 500 });
+    return c.json(logs);
+  }
+  const logs = await getRecentLogs(c.env.DB, 100);
   return c.json(logs);
+});
+
+app.get('/api/audit-log/actions', async (c) => {
+  const actions = await getDistinctActions(c.env.DB);
+  return c.json(actions);
 });
 
 app.get('/admin', (c) => c.redirect('/admin/', 302));

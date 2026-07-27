@@ -63,7 +63,7 @@
         style="width: 160px"
       />
       <n-date-picker
-        v-model:formatted-value="logFilter.startDate"
+        v-model:value="logFilter.startDate"
         type="date"
         value-format="yyyy-MM-dd"
         placeholder="开始日期"
@@ -72,7 +72,7 @@
         style="width: 140px"
       />
       <n-date-picker
-        v-model:formatted-value="logFilter.endDate"
+        v-model:value="logFilter.endDate"
         type="date"
         value-format="yyyy-MM-dd"
         placeholder="结束日期"
@@ -240,7 +240,7 @@ const STATUS_LABELS: Record<string, string> = { success: '成功', error: '失�
 function statusLabel(status: string): string {
   return STATUS_LABELS[status] || status;
 }
-const logFilter = reactive<{ action: string | null; startDate: string | null; endDate: string | null }>({
+const logFilter = reactive<{ action: string | null; startDate: number | null; endDate: number | null }>({
   action: null,
   startDate: null,
   endDate: null,
@@ -251,8 +251,8 @@ async function fetchLogs() {
   try {
     const params: Record<string, string> = {};
     if (logFilter.action) params.action = logFilter.action;
-    if (logFilter.startDate) params.startDate = logFilter.startDate;
-    if (logFilter.endDate) params.endDate = logFilter.endDate;
+    if (logFilter.startDate) params.startDate = toDateStr(logFilter.startDate);
+    if (logFilter.endDate) params.endDate = toDateStr(logFilter.endDate);
     const { data } = await apiClient.get('/audit-log', { params });
     auditLogs.value = data;
   } catch {
@@ -260,6 +260,12 @@ async function fetchLogs() {
   } finally {
     loadingLogs.value = false;
   }
+}
+
+function toDateStr(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 const isMobile = computed(() => windowWidth.value < 640);
