@@ -1,156 +1,164 @@
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 # CF Manager
 
-> ## ⚠️ 免责声明与合规提示
+> ## ⚠️ Disclaimer & Compliance Notice
 >
-> 本工具仅供**学习、技术研究与已授权账户的自有运维管理**使用。使用本项目产生的任何账号封禁、IP 封禁、费用或其他后果，均由使用者自行承担，与本开源项目及作者无关。
+> This tool is intended **for learning, technical research, and self-hosted operations management of accounts you are authorized to use**. Any consequences arising from its use—including account bans, IP bans, charges, or other issues—are the sole responsibility of the user. The open-source project and its authors are not liable.
 >
-> - 请严格遵守 [Cloudflare 服务条款（含 Acceptable Use）](https://www.cloudflare.com/terms/)，**禁止**将本项目用于对外提供公共 AI / 渲染中转服务、转售或分摊算力等违反条款的行为。
-> - 仅添加你本人或已明确授权的 Cloudflare 账户，不使用任何未授权账户。
-> - 多账户切换、自动配额切换等能力**仅限本人合法授权的多个自有账户**使用；批量挂载账号以自动分摊 AI 配额可能违反 Cloudflare 服务协议，不建议开启。
-> - 控制调用频率，避免批量、自动化过量请求触发风控或封号。
-> - 浏览器渲染等涉及外部 URL 的功能，请仅用于可信来源，防范 SSRF 与内网探测。
-> - 如对相关功能是否符合 Cloudflare 服务条款存疑，请优先参考官方条款并咨询法律意见。
+> - Strictly comply with the [Cloudflare Terms of Service (including Acceptable Use)](https://www.cloudflare.com/terms/). **Do not** use this project to provide public AI / rendering proxy services to third parties, or for reselling or splitting compute resources in violation of the terms.
+> - Only add Cloudflare accounts that belong to you or that you are explicitly authorized to manage. Do not use any unauthorized account.
+> - Multi-account switching and automatic quota switching must be used **only with multiple self-owned accounts that you are legally authorized to operate**. Bulk-attaching accounts to automatically split AI quotas may violate the Cloudflare service agreement and is not recommended.
+> - Control your request rate. Avoid bulk or automated excessive requests that could trigger risk control or account suspension.
+> - Features involving external URLs (e.g. browser rendering) should only be used with trusted sources, to guard against SSRF and internal network probing.
+> - If you are unsure whether a feature complies with the Cloudflare Terms of Service, refer to the official terms and seek legal advice first.
 
-CF Manager 是面向开发者 / 运维的一站式 Cloudflare 多账户统一运维管理平台，解决多账号频繁切换后台、资源批量运维繁琐的问题。
+## What Is This
 
-支持可视化管理域名 DNS、Workers、Pages 与 KV/D1/R2 存储，附带内置 AI 推理、网页渲染的本地调试能力，并提供**仅限内网本地使用**的 OpenAI 兼容适配接口。
+> CF Manager is a **one-stop, multi-account unified management platform for Cloudflare**, built for developers and operators. It solves the pain of constantly switching between multiple account dashboards and the tedium of bulk resource operations.
 
-## 在线演示
+- **What it is**: A self-hosted operations panel built on the official Cloudflare API. It unifies the management entry points of multiple accounts and multiple products (DNS / Workers / Pages / Storage / AI / Rendering) into a single interface.
+- **Who it's for**: Individual developers, site owners, and operators who own multiple Cloudflare accounts; users who want to self-host locally and fully control their credentials and data.
+- **Problems it solves**: Constant backend switching across accounts, tedious bulk resource operations, and the lack of a unified local debugging entry point for AI inference and browser rendering.
+- **Core capabilities**: Visually manage domain DNS, Workers, Pages, and KV/D1/R2 storage; built-in local debugging for AI inference and web rendering; and an **internal / local-network-only** OpenAI-compatible adapter interface.
+- **What it is NOT**: It is not a public AI / rendering proxy service. The OpenAI-compatible interface is for your own local debugging only and must never be used for reselling or any scenario that violates the Cloudflare Terms of Service.
+
+## Online Demo
 
 | | |
 |---|---|
-| 地址 | [https://mgrcf.pages.dev/admin/](https://mgrcf.pages.dev/admin/) |
-| 密码 | `cfmgrbest` |
+| URL | [https://mgrcf.pages.dev/admin/](https://mgrcf.pages.dev/admin/) |
+| Password | `cfmgrbest` |
 
-> 演示站部署在 Cloudflare Pages + D1，无需 Docker。根路径显示伪装的 nginx 欢迎页，管理界面通过 `/admin/` 访问。
+> The demo is deployed on Cloudflare Pages + D1, no Docker required. The root path shows a disguised nginx welcome page; the management UI is accessible via `/admin/`.
 >
-> ⚠️ 演示站绑定的是**专用演示账户**，所有功能均可体验但配额有限，仅供界面与功能演示，**请勿用于真实业务或批量调用**；该账户为公开共享演示账号，滥用可能导致其被 Cloudflare 限流或封禁。
+> ⚠️ The demo is bound to a **dedicated demo account**. All features are usable but with limited quota, for UI and feature demonstration only. **Do not use it for real business or bulk calls.** This is a publicly shared demo account; abuse may cause it to be rate-limited or banned by Cloudflare.
 
-## 功能特性
+## Features
 
-| 模块 | 核心能力 |
+| Module | Core Capabilities |
 |---|---|
-| **多账户管理** | API Token / Global API Key 双认证 · 凭证 AES 加密 · 多账户统一切换 ([认证文档](docs/account-auth.md)) |
-| **仪表盘** | 各账户配额用量实时展示（Workers、AI、渲染）· 可视化进度条 · 操作审计 |
-| **Workers / Pages** | 脚本/项目 CRUD · 单/跨账户批量部署 · 绑定/环境变量/路由/自定义域名 · Pages 回滚 |
-| **DNS 管理** | A/AAAA/CNAME/MX/TXT 记录管理 · 一键代理开关 · 批量操作 |
-| **隧道管理** | Tunnel 创建/删除 · Ingress 可视化编辑（域名↔服务映射）· 一键回源向导（DNS CNAME + ingress 自动配置） |
-| **规则引擎** | 8 种规则类型（回源、URL 重写、请求/响应头转换、缓存、防火墙、限速、重定向）· 结构化表单+高级模式 · 表达式生成器 |
-| **存储管理** | KV 键值 CRUD · D1 数据库 SQL 查询 + 表结构变更 · R2 文件上传/下载/预览 |
-| **AI 推理** | Workers AI 全模型 · Prompt Caching 感知计费 · 流式对话 + Reasoning 可视化 · 历史上下文 · 多账户调度 |
-| **浏览器渲染** | 截图 / HTML / Markdown / PDF / 链接提取 5 种模式 · 限速+配额管理 · SSRF 防护 |
-| **OpenAI 兼容 API** | `/v1/chat/completions`、`/v1/models`、浏览器渲染接口 · 流式+非流式 · 仅限内网本地调试 ([API 文档](docs/api-v1.md)) |
-| **应用商店** | 内置 Catalog 模板市场 · 第三方源扩展 · 一键部署 Workers/Pages |
-| **系统设置** | HTTP/SOCKS5 代理 · 缓存清除 · 定时任务扩展 |
-| **安全特性** | API Token AES 加密 · 可选登录密码 · `/admin/` 路径隐藏 + nginx 伪装 · 审计日志 |
+| **Multi-account Management** | API Token / Global API Key dual auth · AES-encrypted credentials · unified account switching ([auth docs](docs/account-auth.md)) |
+| **Dashboard** | Real-time quota usage per account (Workers, AI, Rendering) · visual progress bars · operation audit |
+| **Workers / Pages** | Script/Project CRUD · single/cross-account batch deployment · bindings/env vars/routes/custom domains · Pages rollback |
+| **DNS Management** | A/AAAA/CNAME/MX/TXT record management · one-click proxy toggle · bulk operations |
+| **Tunnel Management** | Tunnel create/delete · visual Ingress editor (domain↔service mapping) · one-click origin wizard (DNS CNAME + auto Ingress config) |
+| **Rules Engine** | 8 rule types (origin, URL rewrite, request/response header transform, cache, firewall, rate limit, redirect) · structured form + advanced mode · expression builder |
+| **Storage Management** | KV key-value CRUD · D1 SQL query + schema changes · R2 file upload/download/preview |
+| **AI Inference** | Full Workers AI models · Prompt Caching-aware billing · streaming chat + reasoning visualization · conversation history · multi-account scheduling |
+| **Browser Rendering** | 5 modes: screenshot / HTML / Markdown / PDF / link extraction · rate limit + quota management · SSRF protection |
+| **OpenAI-compatible API** | `/v1/chat/completions`, `/v1/models`, browser rendering endpoints · streaming + non-streaming · local/internal only ([API docs](docs/api-v1.md)) |
+| **App Store** | Built-in Catalog template marketplace · third-party source extension · one-click Workers/Pages deployment |
+| **System Settings** | HTTP/SOCKS5 proxy · cache purge · scheduled task extensions |
+| **Security** | AES-encrypted API Token · optional login password · `/admin/` path hiding + nginx disguise · audit log |
 
 ---
 
-## 快速开始
+## Quick Start
 
-> 三种部署方式可选，详见 [部署文档](docs/deploy.md)
+> Three deployment options are available. See the [deployment docs](docs/deploy.md) for details.
 
 <details open>
-<summary><strong>方式一：Fork 一键部署（最简单）</strong></summary>
+<summary><strong>Option 1: Fork One-Click Deploy (easiest)</strong></summary>
 
-无需安装任何工具，全程在浏览器中完成。
+No tools to install—everything happens in the browser.
 
-**推荐：使用 Secrets 版本（敏感信息不泄露到日志）**
+**Recommended: Use the Secrets version (secrets never leak into logs)**
 
-1. **Fork 本仓库** → 点击右上角 Fork
-2. 进入 Fork 仓库 → **Settings** → **Environments** → **New environment**，创建环境（如 `production`），在环境内添加 4 个 secret：
-   - `CF_API_KEY`：Cloudflare Global API Key（高权限密钥，建议改用细粒度 API Token，见 [账户认证文档](docs/account-auth.md)）
-   - `CF_EMAIL`：Cloudflare 账号邮箱
-   - `ENCRYPTION_KEY`：加密密钥（请填写高强度随机字符串，至少 16 位）
-   - `API_SECRET`：管理界面访问密码（请填写高强度随机字符串，不要使用弱密码）
-3. 进入 **Actions** → 选择 **Deploy to Cloudflare Pages (Secrets)** → **Run workflow**，输入环境名如 `production`
-4. 等待部署完成，访问 `https://cfmgr.pages.dev/admin/`
+1. **Fork this repo** → click Fork in the top-right corner
+2. Go to your fork → **Settings** → **Environments** → **New environment**, create an environment (e.g. `production`), and add 4 secrets inside it:
+   - `CF_API_KEY`: Cloudflare Global API Key (high-privilege key; prefer a scoped API Token, see [account auth docs](docs/account-auth.md))
+   - `CF_EMAIL`: Cloudflare account email
+   - `ENCRYPTION_KEY`: encryption key (use a strong random string, at least 16 chars)
+   - `API_SECRET`: management UI access password (use a strong random string, avoid weak passwords)
+3. Go to **Actions** → select **Deploy to Cloudflare Pages (Secrets)** → **Run workflow**, enter the environment name such as `production`
+4. Wait for deployment to finish, then visit `https://cfmgr.pages.dev/admin/`
 
-> ⚠️ 重要提醒：仅建议绑定本人独立业务 / 测试账号分开管理，请勿批量挂载账号用于自动分摊 AI 配额，该用法违反 Cloudflare 服务协议。
+> ⚠️ Important: Bind only your own separate business/test accounts. Do not bulk-attach accounts to automatically split AI quotas—this violates the Cloudflare service agreement.
 
-> 多账户可建多个 Environment 分别配密钥，部署时输入对应环境名即可。
+> For multiple accounts, create multiple Environments with separate secrets, then enter the corresponding environment name at deploy time.
 
-> Cloudflare Global API Key 获取：[Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) → API Keys → Global API Key → View
-
-</details>
-
-<details>
-<summary><strong>方式二：Cloudflare Pages 手动部署（零成本）</strong></summary>
-
-下载预构建包上传到 Cloudflare Dashboard。
-
-**1. 下载部署包：**
-
-👉 [下载最新版 cf-manager.zip](https://github.com/hefy2027/cf-manager/releases/latest/download/cf-manager.zip)
-
-或本地构建：`cd worker && npm install && npm run build`
-
-**2. 创建 D1 数据库：**
-
-Cloudflare Dashboard → Workers & Pages → D1 → Create → 名称填 `cf-manager` → 在 Console 中执行 `worker/src/db/schema.sql`
-
-**3. 上传部署：**
-
-Workers & Pages → Create → Pages → Upload assets → 上传 `cf-manager.zip`
-
-**4. 配置 Bindings：**
-
-Settings → Bindings → Add D1 Database → Variable name: `DB` → 选择你的数据库
-
-Settings → Bindings → Add KV Namespace → Variable name: `KV` → 创建或选择已有的命名空间
-
-Settings → Environment variables → 添加 `ENCRYPTION_KEY` 和 `API_SECRET`（可选）
-
-**5. 重新部署后访问** `https://your-project.pages.dev/admin/`
+> Get Cloudflare Global API Key: [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) → API Keys → Global API Key → View
 
 </details>
 
 <details>
-<summary><strong>方式三：Docker 部署（自建服务器）</strong></summary>
+<summary><strong>Option 2: Manual Cloudflare Pages Deploy (zero cost)</strong></summary>
+
+Download the prebuilt bundle and upload it to the Cloudflare Dashboard.
+
+**1. Download the deployment bundle:**
+
+👉 [Download the latest cf-manager.zip](https://github.com/hefy2027/cf-manager/releases/latest/download/cf-manager.zip)
+
+Or build locally: `cd worker && npm install && npm run build`
+
+**2. Create a D1 database:**
+
+Cloudflare Dashboard → Workers & Pages → D1 → Create → name it `cf-manager` → run `worker/src/db/schema.sql` in the Console
+
+**3. Upload & deploy:**
+
+Workers & Pages → Create → Pages → Upload assets → upload `cf-manager.zip`
+
+**4. Configure Bindings:**
+
+Settings → Bindings → Add D1 Database → Variable name: `DB` → select your database
+
+Settings → Bindings → Add KV Namespace → Variable name: `KV` → create or select an existing namespace
+
+Settings → Environment variables → add `ENCRYPTION_KEY` and `API_SECRET` (optional)
+
+**5. Redeploy, then visit** `https://your-project.pages.dev/admin/`
+
+</details>
+
+<details>
+<summary><strong>Option 3: Docker Deploy (self-hosted server)</strong></summary>
 
 ```bash
-# 1. 克隆项目
+# 1. Clone the project
 git clone https://github.com/hefy2027/cf-manager.git
 cd cf-manager
 
-# 2. 创建配置文件
+# 2. Create the config file
 cp .env.example .env
 
-# 3. 编辑 .env，至少设置 ENCRYPTION_KEY
-#    可选设置 API_SECRET（管理界面登录密码）、PROXY_URL（代理地址）
-#    可选设置 BASE_URL（前端访问路径，如 /admin/）
+# 3. Edit .env — at minimum set ENCRYPTION_KEY
+#    Optionally set API_SECRET (UI login password), PROXY_URL (proxy address)
+#    Optionally set BASE_URL (frontend path, e.g. /admin/)
 
-# 4. 一键部署
+# 4. One-click deploy
 chmod +x deploy.sh
 ./deploy.sh
 
-# 5. 访问 http://localhost:3000（或 http://localhost:3000/admin/ 如果设置了 BASE_URL）
+# 5. Visit http://localhost:3000 (or http://localhost:3000/admin/ if BASE_URL is set)
 ```
 
 </details>
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 必填 | 说明 |
+| Variable | Required | Description |
 |---|---|---|
-| `ENCRYPTION_KEY` | 是 | 加密存储 API Token 的密钥（任意随机字符串，至少 16 位） |
-| `API_SECRET` | 否 | 管理界面访问密码，留空则无需登录 |
-| `PROXY_URL` | 否 | HTTP/SOCKS5 代理地址，如 `http://127.0.0.1:7890` 或 `socks5://127.0.0.1:1080` |
-| `APP_PORT` | 否 | 对外暴露端口，默认 `3000` |
-| `BASE_URL` | 否 | 前端访问路径，如 `/admin/`，默认 `/`（仅 Docker 部署需要，Worker 版固定为 `/admin/`） |
-| `DEMO_ACCOUNT_IDS` | 否 | 演示模式保护的账户 ID（逗号分隔），如 `1,2,3`。受保护账户不可删除和修改 |
-| `KV` (Binding) | 否 | KV Namespace 绑定（仅 Pages 部署），用于并发请求保护和缓存感知路由。可选但推荐 |
+| `ENCRYPTION_KEY` | Yes | Key used to encrypt stored API Tokens (any random string, at least 16 chars) |
+| `API_SECRET` | No | Management UI access password; empty means no login required |
+| `PROXY_URL` | No | HTTP/SOCKS5 proxy address, e.g. `http://127.0.0.1:7890` or `socks5://127.0.0.1:1080` |
+| `APP_PORT` | No | Exposed port, default `3000` |
+| `BASE_URL` | No | Frontend base path, e.g. `/admin/`, default `/` (Docker only; Worker is fixed to `/admin/`) |
+| `DEMO_ACCOUNT_IDS` | No | Protected demo account IDs (comma-separated), e.g. `1,2,3`. Protected accounts cannot be deleted or modified |
+| `KV` (Binding) | No | KV Namespace binding (Pages deploy only), used for concurrent-request protection and cache-aware routing. Optional but recommended |
 
 <details>
-<summary><strong>本地开发</strong></summary>
+<summary><strong>Local Development</strong></summary>
 
 ```bash
-# 后端（http://localhost:3001）
+# Backend (http://localhost:3001)
 cd backend
 npm install
 ENCRYPTION_KEY="dev-key" npm run dev
 
-# 前端（http://localhost:5173，自动代理 /api 到后端）
+# Frontend (http://localhost:5173, auto-proxies /api to backend)
 cd frontend
 npm install
 npm run dev
@@ -160,84 +168,84 @@ npm run dev
 
 ---
 
-## 技术栈
+## Tech Stack
 
-| 层级 | Docker 版 | Worker 版 |
+| Layer | Docker | Worker |
 |---|---|---|
-| 前端 | Vue 3 + Naive UI + Pinia | 同左 |
-| 后端 | Express 5 + Cloudflare SDK | Hono + Cloudflare REST API |
-| 数据库 | SQLite (better-sqlite3) | Cloudflare D1 |
-| 部署 | Docker Compose | Cloudflare Pages |
+| Frontend | Vue 3 + Naive UI + Pinia | Same |
+| Backend | Express 5 + Cloudflare SDK | Hono + Cloudflare REST API |
+| Database | SQLite (better-sqlite3) | Cloudflare D1 |
+| Deploy | Docker Compose | Cloudflare Pages |
 
 ---
 
-## 项目结构
+## Project Structure
 
 ```
 cf-manager/
-├── backend/                 # 后端 API 服务
+├── backend/                 # Backend API service
 │   └── src/
-│       ├── index.ts         # Express 入口
-│       ├── config.ts        # 配置
-│       ├── db.ts            # SQLite 数据库
-│       ├── middleware/      # 认证、错误处理、响应包装
-│       ├── models/          # 数据模型
-│       ├── routes/          # API 路由
-│       └── services/        # 业务逻辑层（Cloudflare SDK 封装）
-├── frontend/                # 前端 Vue 应用
+│       ├── index.ts         # Express entry
+│       ├── config.ts        # Config
+│       ├── db.ts            # SQLite database
+│       ├── middleware/      # Auth, error handling, response wrapper
+│       ├── models/          # Data models
+│       ├── routes/          # API routes
+│       └── services/        # Business logic (Cloudflare SDK wrapper)
+├── frontend/                # Vue frontend app
 │   └── src/
-│       ├── api/             # API 调用封装
-│       ├── views/           # 页面组件
-│       ├── components/      # 可复用组件（StoreDeployDialog 等）
-│       ├── stores/          # Pinia 状态管理
-│       └── utils/           # 工具函数
-├── worker/                  # Cloudflare Pages 部署版
-│   ├── src/                 # Hono API 路由 + D1 模型
-│   ├── build.js             # 一键构建脚本
-│   └── wrangler.toml        # Wrangler 配置
-├── docker/                  # Docker 构建配置
+│       ├── api/             # API call wrappers
+│       ├── views/           # Page components
+│       ├── components/      # Reusable components (StoreDeployDialog, etc.)
+│       ├── stores/          # Pinia state management
+│       └── utils/           # Utility functions
+├── worker/                  # Cloudflare Pages deployment
+│   ├── src/                 # Hono API routes + D1 models
+│   ├── build.js             # One-click build script
+│   └── wrangler.toml        # Wrangler config
+├── docker/                  # Docker build config
 │   ├── backend/Dockerfile
 │   └── frontend/
 │       ├── Dockerfile
-│       ├── nginx.conf.template  # Nginx 配置模板（支持 BASE_URL）
-│       └── entrypoint.sh        # 容器启动脚本
-├── shared/                  # 前后端共享配置
-│   ├── model-pricing.json    # AI 模型定价（含缓存价格）
-│   ├── catalog.schema.json   # Catalog 模板 JSON Schema
-│   └── catalogValidator.ts   # Catalog 校验器源码
-├── docs/                    # 文档
-│   ├── api-v1.md            # 外部 API 接口文档
-│   ├── account-auth.md      # 账户认证方式说明
-│   └── deploy.md            # 部署文档
+│       ├── nginx.conf.template  # Nginx config template (supports BASE_URL)
+│       └── entrypoint.sh        # Container entrypoint script
+├── shared/                  # Shared frontend/backend config
+│   ├── model-pricing.json    # AI model pricing (incl. cache pricing)
+│   ├── catalog.schema.json   # Catalog template JSON Schema
+│   └── catalogValidator.ts   # Catalog validator source
+├── docs/                    # Documentation
+│   ├── api-v1.md            # External API docs
+│   ├── account-auth.md      # Account auth docs
+│   └── deploy.md            # Deployment docs
 ├── docker-compose.yml
-├── deploy.sh                # 一键部署脚本
-├── CHANGELOG.md             # 更新日志
-└── .env.example             # 环境变量模板
+├── deploy.sh                # One-click deploy script
+├── CHANGELOG.md             # Changelog
+└── .env.example             # Env var template
 ```
 
 ---
 
-## 功能截图
+## Screenshots
 
 <table>
   <tr>
-    <td width="33%"><img src="images/dashboard.png" alt="仪表盘"><br><em>仪表盘</em></td>
-    <td width="33%"><img src="images/accounts.png" alt="账号管理"><br><em>账号管理</em></td>
+    <td width="33%"><img src="images/dashboard.png" alt="Dashboard"><br><em>Dashboard</em></td>
+    <td width="33%"><img src="images/accounts.png" alt="Accounts"><br><em>Accounts</em></td>
     <td width="33%"><img src="images/workers.png" alt="Workers / Pages"><br><em>Workers / Pages</em></td>
   </tr>
   <tr>
-    <td><img src="images/dns.png" alt="DNS 管理"><br><em>DNS 管理</em></td>
-    <td><img src="images/storage.png" alt="存储管理"><br><em>存储管理（KV / D1 / R2）</em></td>
-    <td><img src="images/ai.png" alt="AI 推理"><br><em>AI 推理</em></td>
+    <td><img src="images/dns.png" alt="DNS"><br><em>DNS</em></td>
+    <td><img src="images/storage.png" alt="Storage"><br><em>Storage (KV / D1 / R2)</em></td>
+    <td><img src="images/ai.png" alt="AI Inference"><br><em>AI Inference</em></td>
   </tr>
   <tr>
-    <td><img src="images/browser-render.png" alt="浏览器渲染"><br><em>浏览器渲染</em></td>
-    <td><img src="images/settings.png" alt="系统设置"><br><em>系统设置</em></td>
-    <td><img src="images/store.png" alt="应用商店"><br><em>应用商店</em></td>
+    <td><img src="images/browser-render.png" alt="Browser Rendering"><br><em>Browser Rendering</em></td>
+    <td><img src="images/settings.png" alt="Settings"><br><em>Settings</em></td>
+    <td><img src="images/store.png" alt="App Store"><br><em>App Store</em></td>
   </tr>
   <tr>
-    <td><img src="images/tunnels.png" alt="隧道管理"><br><em>隧道管理</em></td>
-    <td><img src="images/rules-engine.png" alt="规则引擎"><br><em>规则引擎</em></td>
+    <td><img src="images/tunnels.png" alt="Tunnels"><br><em>Tunnels</em></td>
+    <td><img src="images/rules-engine.png" alt="Rules Engine"><br><em>Rules Engine</em></td>
     <td></td>
   </tr>
 </table>
@@ -253,10 +261,10 @@ cf-manager/
 [MIT](LICENSE) © 2024 CF Manager Contributors
 
 
-## 相关项目
+## Related Projects
 
-- [cf-store](https://github.com/hefy2027/cf-store)：CF Manager「应用商店」的 Catalog 模板仓库（应用/Worker 部署模板源），如需贡献或自托管模板可参考此仓库。
+- [cf-store](https://github.com/hefy2027/cf-store): The Catalog template repository for CF Manager's "App Store" (app/Worker deployment template source). Refer to it if you want to contribute or self-host templates.
 
-## 社区
+## Community
 
-本开源项目已链接并认可 [LINUX DO 社区](https://linux.do)。
+This open-source project is linked with and recognizes the [LINUX DO community](https://linux.do).
