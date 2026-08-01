@@ -127,12 +127,14 @@ import {
   GitBranchOutline,
 } from '@vicons/ionicons5';
 import apiClient from './api/client';
-import { message as globalMessage } from './utils/discreteApi';
+import { message as globalMessage, setDiscreteTheme } from './utils/discreteApi';
 
 const router = useRouter();
 const route = useRoute();
 const collapsed = ref(false);
-const isDark = ref(false);
+const storedDark = localStorage.getItem('darkMode');
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+const isDark = ref(storedDark !== null ? storedDark === 'true' : prefersDark);
 const activeMenuKey = ref(route.name as string);
 const theme = computed(() => isDark.value ? darkTheme : null);
 
@@ -226,6 +228,7 @@ function onResize() {
 }
 
 onMounted(async () => {
+  applyTheme();
   initFabPos();
   window.addEventListener('resize', onResize);
   window.addEventListener('auth-expired', () => {
@@ -301,6 +304,14 @@ function handleMenuClick(key: string) {
 
 function toggleTheme() {
   isDark.value = !isDark.value;
+  applyTheme();
+}
+
+function applyTheme() {
+  const dark = isDark.value;
+  document.documentElement.classList.toggle('app-dark', dark);
+  localStorage.setItem('darkMode', String(dark));
+  setDiscreteTheme(dark);
 }
 </script>
 
@@ -313,6 +324,9 @@ function toggleTheme() {
   -ms-overflow-style: none;
   display: flex;
   flex-direction: column;
+  background-color: var(--app-bg);
+  color: var(--app-text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 .mobile-layout::-webkit-scrollbar {
   display: none;
@@ -330,7 +344,7 @@ function toggleTheme() {
   padding: 12px 4px 4px;
   text-align: center;
   font-size: 12px;
-  color: #999;
+  color: var(--app-text-muted);
 }
 
 .page-view {

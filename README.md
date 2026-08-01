@@ -265,6 +265,10 @@ cf-manager/
 
 - [cf-store](https://github.com/hefy2027/cf-store): The Catalog template repository for CF Manager's "App Store" (app/Worker deployment template source). Refer to it if you want to contribute or self-host templates.
 
-## Community
+## 社区与公众号
 
-This open-source project is linked with and recognizes the [LINUX DO community](https://linux.do).
+本开源项目已链接并认可 [LINUX DO 社区](https://linux.do)。
+
+欢迎关注公众号「**AI非与**」，获取项目更新与技术分享：
+
+<img src="https://i.ibb.co/mFq91Rzq/ai-feyu-wechat-qr.jpg" alt="AI非与公众号" width="200" />

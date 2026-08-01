@@ -157,11 +157,6 @@ code {
 }
 
 #app {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -293,4 +288,44 @@ code {
     right: 0;
     border-right-color: var(--border);
   }
+}
+
+/* ============ App Theme CSS Variables ============ */
+
+:root {
+  --app-bg: #fff;
+  --app-bg-card: #fff;
+  --app-bg-hover: #f5f5f5;
+  --app-bg-secondary: #f5f5f5;
+  --app-bg-tertiary: #e8e8e8;
+  --app-border: #e0e0e6;
+  --app-border-light: #f0f0f0;
+  --app-border-input: #eee;
+  --app-text-primary: #333;
+  --app-text-secondary: #555;
+  --app-text-tertiary: #666;
+  --app-text-muted: #888;
+  --app-text-disabled: #999;
+  --app-text-heading: #1a1a1a;
+  --app-input-bg: #fff;
+  --app-input-border: #eee;
+}
+
+html.app-dark {
+  --app-bg: #16171d;
+  --app-bg-card: #1e1f28;
+  --app-bg-hover: #2a2b35;
+  --app-bg-secondary: #2a2b35;
+  --app-bg-tertiary: #1f2028;
+  --app-border: #2e303a;
+  --app-border-light: #2a2b35;
+  --app-border-input: #2e303a;
+  --app-text-primary: #d0d0d0;
+  --app-text-secondary: #b0b0b0;
+  --app-text-tertiary: #a0a0a0;
+  --app-text-muted: #7a7a8a;
+  --app-text-disabled: #6a6a7a;
+  --app-text-heading: #e8e8ec;
+  --app-input-bg: #1e1f28;
+  --app-input-border: #2e303a;
 }

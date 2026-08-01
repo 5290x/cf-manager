@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2] - 2026-08-01
+
+### 🐛 Bug 修复
+
+- **AI 推理页用量统计 404**：`/api/ai/usage` 接口在 Worker（Cloudflare Pages）端缺失，前端 fetch 收到 nginx 伪装 HTML 页面，解析 JSON 抛出 `SyntaxError: Unexpected token '<'`。补齐 Worker 端 `routes/ai.ts` 的 `GET /usage` 实现并挂载到 `/api/ai`，与 backend 对称。
+- **移动端暗黑模式切换缺失**：修复三个关联问题：1) `main.ts` 未导入 `style.css`，导致所有自定义 CSS 变量（`--app-bg`、`--app-bg-card` 等）从未加载，移动端布局、紧凑账户卡片、AI 建议卡等全部失效；2) `toggleTheme` 未调用 `setDiscreteTheme`，导致 message/notification/dialog 等离散组件不跟随主题；3) 主题状态未持久化（刷新后回退亮色）且未检测系统 `prefers-color-scheme`。现补齐 `style.css` 导入、`toggleTheme` 同步 `html.app-dark` class + localStorage 持久化 + `setDiscreteTheme` 调用、启动时从 localStorage/系统偏好恢复主题。
+
 ## [1.4.1] - 2026-07-27
 
 ### 🚀 新特性

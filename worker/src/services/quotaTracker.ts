@@ -288,7 +288,7 @@ export async function selectBestAccount(
 
 interface AiUsage { totalNeurons: number; models: { modelId: string; neurons: number; requests: number }[] }
 
-async function getAiUsageToday(account: Account, encryptionKey: string): Promise<AiUsage> {
+export async function getAiUsageToday(account: Account, encryptionKey: string): Promise<AiUsage> {
   if (!account.account_id) throw new Error(`AI usage: account "${account.name}" missing account_id`);
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();

@@ -39,12 +39,12 @@
                   :show-indicator="false"
                   style="margin-bottom: 10px;"
                 />
-                <div v-if="u.models.length > 0" style="border-top: 1px solid #f0f0f0; padding-top: 8px;">
-                  <div style="font-size: 12px; color: #888; margin-bottom: 6px;">模型明细 ({{ u.models.length }})</div>
+                <div v-if="u.models.length > 0" style="border-top: 1px solid var(--app-border-light); padding-top: 8px;">
+                  <div style="font-size: 12px; color: var(--app-text-muted); margin-bottom: 6px;">模型明细 ({{ u.models.length }})</div>
                   <div
                     v-for="m in u.models"
                     :key="m.modelId"
-                    style="display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; color: #555; border-bottom: 1px solid #f8f8f8;"
+                    style="display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; color: var(--app-text-secondary); border-bottom: 1px solid var(--app-border-light);"
                   >
                     <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.modelId.replace(/^@cf\//, '') }}</span>
                     <span style="flex-shrink: 0; margin-left: 12px;">{{ m.neurons.toLocaleString() }} / {{ m.requests.toLocaleString() }} 请求</span>
@@ -55,12 +55,12 @@
           </n-gi>
         </n-grid>
         </div>
-        <h1 style="font-size: 32px; margin-bottom: 36px; color: #1a1a1a; font-weight: 600;">有什么我能帮你的吗？</h1>
+        <h1 style="font-size: 32px; margin-bottom: 36px; color: var(--app-text-heading); font-weight: 600;">有什么我能帮你的吗？</h1>
         <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; max-width: 820px; margin: 0 auto;">
           <div
             v-for="s in suggestions"
             :key="s"
-            style="cursor: pointer; padding: 12px 20px; font-size: 14px; border: 1px solid #e0e0e0; border-radius: 24px; background: white; color: #333; transition: all 0.2s;"
+            style="cursor: pointer; padding: 12px 20px; font-size: 14px; border: 1px solid var(--app-border); border-radius: 24px; background: var(--app-bg-card); color: var(--app-text-primary); transition: all 0.2s;"
             @mouseenter="(e: MouseEvent) => { const t = e.target as HTMLElement; t.style.borderColor = '#2080f0'; t.style.color = '#2080f0'; }"
             @mouseleave="(e: MouseEvent) => { const t = e.target as HTMLElement; t.style.borderColor = '#e0e0e0'; t.style.color = '#333'; }"
             @click="useSuggestion(s)"
@@ -79,22 +79,22 @@
         <!-- AI 消息 -->
         <div v-else style="display: flex; justify-content: flex-start; width: 100%; gap: 10px;">
           <div style="width: 36px; height: 36px; border-radius: 50%; background: #2080f0; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;">AI</div>
-          <div style="background: #f5f5f5; padding: 12px 16px; border-radius: 4px 16px 16px 16px; max-width: 70%; font-size: 15px; line-height: 1.6;">
+          <div style="background: var(--app-bg-secondary); padding: 12px 16px; border-radius: 4px 16px 16px 16px; max-width: 70%; font-size: 15px; line-height: 1.6;">
             <!-- 思考过程 -->
             <div v-if="msg.reasoning" style="margin-bottom: 10px;">
               <div
-                style="cursor: pointer; display: flex; align-items: center; gap: 6px; color: #888; font-size: 13px; user-select: none;"
+                style="cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--app-text-muted); font-size: 13px; user-select: none;"
                 @click="msg.reasoningExpanded = !msg.reasoningExpanded"
               >
                 <span style="font-size: 12px; transition: transform 0.2s; display: inline-block;" :style="{ transform: msg.reasoningExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }">▶</span>
                  思考过程{{ msg.thinkingDone ? '' : '（进行中...）' }}
               </div>
-              <div v-show="msg.reasoningExpanded" style="white-space: pre-wrap; color: #666; font-size: 13px; background: #e8e8e8; padding: 10px; border-radius: 6px; margin-top: 6px;">{{ msg.reasoning }}</div>
+              <div v-show="msg.reasoningExpanded" style="white-space: pre-wrap; color: var(--app-text-tertiary); font-size: 13px; background: var(--app-bg-tertiary); padding: 10px; border-radius: 6px; margin-top: 6px;">{{ msg.reasoning }}</div>
             </div>
             <!-- 回答内容 -->
             <div style="white-space: pre-wrap;">{{ msg.content }}</div>
             <!-- 加载中 -->
-            <div v-if="msg.loading" style="color: #999;">
+            <div v-if="msg.loading" style="color: var(--app-text-disabled);">
               <n-spin size="small" /> 思考中...
             </div>
           </div>
@@ -426,9 +426,9 @@ watch(selectedAccount, () => {
 }
 
 .ai-input-bar {
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--app-border-input);
   padding: 12px 20px;
-  background: white;
+  background: var(--app-input-bg);
 }
 
 .ai-toolbar {
@@ -451,14 +451,14 @@ watch(selectedAccount, () => {
   min-width: 0;
   height: 28px;
   padding: 0 8px;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.2s;
-  background-color: #fff;
+  background-color: var(--app-bg-card);
   box-sizing: border-box;
 }
-.ai-compact-card:hover { background-color: #f5f5f5; }
+.ai-compact-card:hover { background-color: var(--app-bg-hover); }
 .ai-compact-card__name {
   font-size: 12px;
   overflow: hidden;
@@ -469,7 +469,7 @@ watch(selectedAccount, () => {
 }
 .ai-compact-card__metric {
   font-size: 11px;
-  color: #333;
+  color: var(--app-text-primary);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;

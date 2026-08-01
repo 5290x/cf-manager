@@ -20,6 +20,7 @@ import settingsRouter from './routes/settings';
 import openaiRouter from './routes/openai';
 import storeRouter from './routes/store';
 import tunnelsRouter from './routes/tunnels';
+import aiRouter from './routes/ai';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -86,6 +87,7 @@ app.route('/api/settings', settingsRouter);
 app.route('/api/storage', storageRouter);
 app.route('/api/store', storeRouter);
 app.route('/api/tunnels', tunnelsRouter);
+app.route('/api/ai', aiRouter);
 
 app.get('/api/quota', async (c) => {
   await syncUsageFromCloudflare(c.env.DB, c.env.ENCRYPTION_KEY);
