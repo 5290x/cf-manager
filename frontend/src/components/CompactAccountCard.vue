@@ -10,7 +10,7 @@
             </template>
             {{ resourceLabel(item.resource) }}: {{ calcPercentage(item) }}%<span v-if="item.exhausted">（已耗尽）</span>
           </n-tooltip>
-          <span v-for="i in emptyDots" :key="'empty-' + i" class="compact-card__dot" style="background-color: #ccc" />
+          <span v-for="i in emptyDots" :key="'empty-' + i" class="compact-card__dot" style="background-color: var(--app-text-disabled)" />
         </div>
       </div>
     </template>
@@ -31,7 +31,7 @@
           :status="item.exhausted ? 'error' : progressStatus(item)"
         />
       </div>
-      <div v-if="!hasResources" style="color: #999; font-size: 13px;">暂无资源数据</div>
+      <div v-if="!hasResources" style="color: var(--app-text-disabled); font-size: 13px;">暂无资源数据</div>
     </div>
   </n-popover>
 </template>
@@ -116,25 +116,25 @@ const hasResources = computed(() => props.resources && props.resources.length > 
   min-width: 0;
   height: 28px;
   padding: 0 6px;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.2s;
-  background-color: #fff;
+  background-color: var(--app-bg-card);
   box-sizing: border-box;
 }
 
 .compact-card:hover {
-  background-color: #f5f5f5;
+  background-color: var(--app-bg-hover);
 }
 
 .compact-card--no-resources {
   opacity: 0.6;
-  background-color: #f5f5f5;
+  background-color: var(--app-bg-secondary);
 }
 
 .compact-card--no-resources:hover {
-  background-color: #e8e8e8;
+  background-color: var(--app-bg-tertiary);
 }
 
 .compact-card__name {
@@ -186,7 +186,7 @@ const hasResources = computed(() => props.resources && props.resources.length > 
 }
 
 .compact-card__popover-value {
-  color: #999;
+  color: var(--app-text-disabled);
 }
 
 @media (max-width: 768px) {

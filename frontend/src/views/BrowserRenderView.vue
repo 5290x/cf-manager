@@ -84,7 +84,7 @@
         <template #header-extra>
           <n-button size="tiny" @click="downloadScreenshot">下载</n-button>
         </template>
-        <img :src="result.screenshot" style="max-width: 100%; border: 1px solid #eee; border-radius: 4px" />
+        <img :src="result.screenshot" style="max-width: 100%; border: 1px solid var(--app-border-input); border-radius: 4px" />
       </n-card>
 
       <!-- HTML 渲染结果 -->
@@ -99,7 +99,7 @@
           v-if="htmlViewMode === 'render'"
           class="br-result-frame"
           :srcdoc="result.html"
-          style="width: 100%; height: 600px; border: 1px solid #eee; border-radius: 4px;"
+          style="width: 100%; height: 600px; border: 1px solid var(--app-border-input); border-radius: 4px;"
           sandbox="allow-same-origin"
         />
         <n-code v-else :code="result.html" language="html" :word-wrap="true" style="max-height: 600px; overflow: auto;" />
@@ -115,22 +115,22 @@
         <template #header-extra>
           <n-button size="tiny" @click="downloadPdf">下载 PDF</n-button>
         </template>
-        <iframe :src="result.pdf" class="br-result-pdf" style="width: 100%; border: 1px solid #eee;" />
+        <iframe :src="result.pdf" class="br-result-pdf" style="width: 100%; border: 1px solid var(--app-border-input);" />
       </n-card>
 
       <!-- 链接提取结果 -->
       <n-card v-if="result?.links" title="提取的链接" size="small" style="margin-bottom: 16px">
         <div v-if="Array.isArray(result.links)">
-          <div v-for="(link, i) in result.links" :key="i" style="padding: 4px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px;">
+          <div v-for="(link, i) in result.links" :key="i" style="padding: 4px 0; border-bottom: 1px solid var(--app-border-light); font-size: 13px;">
             <a :href="link" target="_blank" style="color: #2080f0;">{{ link }}</a>
           </div>
-          <div style="margin-top: 8px; color: #888; font-size: 13px;">共 {{ result.links.length }} 个链接</div>
+          <div style="margin-top: 8px; color: var(--app-text-muted); font-size: 13px;">共 {{ result.links.length }} 个链接</div>
         </div>
         <n-code v-else :code="JSON.stringify(result.links, null, 2)" language="json" :word-wrap="true" />
       </n-card>
 
       <!-- 耗时 -->
-      <div v-if="result" style="color: #888; font-size: 13px; margin-top: 8px;">
+      <div v-if="result" style="color: var(--app-text-muted); font-size: 13px; margin-top: 8px;">
         浏览器用时: {{ result.browserMsUsed ? (result.browserMsUsed / 1000).toFixed(2) + 's' : result.duration?.toFixed(2) + 's' }}
       </div>
 
@@ -238,14 +238,14 @@ onMounted(() => {
   min-width: 0;
   height: 28px;
   padding: 0 8px;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.2s;
-  background-color: #fff;
+  background-color: var(--app-bg-card);
   box-sizing: border-box;
 }
-.br-compact-card:hover { background-color: #f5f5f5; }
+.br-compact-card:hover { background-color: var(--app-bg-hover); }
 .br-compact-card__name {
   font-size: 12px;
   overflow: hidden;
@@ -256,7 +256,7 @@ onMounted(() => {
 }
 .br-compact-card__metric {
   font-size: 11px;
-  color: #333;
+  color: var(--app-text-primary);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;

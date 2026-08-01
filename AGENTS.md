@@ -180,7 +180,7 @@ chmod +x deploy.sh && ./deploy.sh
 | DNS 记录管理 | `src/routes/dns.ts` | `src/routes/dns.ts` |
 | Workers/Pages 部署 | `src/routes/workers.ts` | `src/routes/workers.ts` |
 | KV/D1/R2 存储 | `src/routes/storage.ts` | `src/routes/storage.ts` |
-| AI 推理（内部） | `src/routes/ai.ts` | —（Worker 版无独立路由，复用 openai） |
+| AI 推理（内部） | `src/routes/ai.ts` | `src/routes/ai.ts` |
 | OpenAI 兼容 API | `src/routes/openai.ts` | `src/routes/openai.ts` |
 | 浏览器渲染（内部） | `src/routes/browserRender.ts` | `src/routes/browserRender.ts` |
 | 浏览器渲染（外部） | `src/routes/externalBrowserRender.ts` | —（Worker 版在 browserRender 内） |

@@ -103,7 +103,7 @@
             <n-upload :max="1" :default-upload="false" @change="handleAssetsChange" accept=".zip">
               <n-button>选择 .zip（可选）</n-button>
             </n-upload>
-            <span v-if="selectedAssetsFile" style="margin-left: 8px; font-size: 12px; color: #999">{{ selectedAssetsFile.name }}</span>
+            <span v-if="selectedAssetsFile" style="margin-left: 8px; font-size: 12px; color: var(--app-text-disabled)">{{ selectedAssetsFile.name }}</span>
           </n-form-item>
           <n-form-item v-else label="JS URL">
             <n-input v-model:value="deployUrl" placeholder="https://example.com/worker.js" />
@@ -113,7 +113,7 @@
           <n-upload :max="1" :default-upload="false" @change="handleZipChange" accept=".zip">
             <n-button>选择 .zip 文件</n-button>
           </n-upload>
-          <span v-if="selectedZipFile" style="margin-left: 8px; font-size: 12px; color: #999">{{ selectedZipFile.name }}</span>
+          <span v-if="selectedZipFile" style="margin-left: 8px; font-size: 12px; color: var(--app-text-disabled)">{{ selectedZipFile.name }}</span>
           <n-text v-else-if="!isRedeploy" depth="3" style="margin-left: 8px; font-size: 12px">不选则创建空项目</n-text>
         </n-form-item>
       </n-form>
@@ -458,23 +458,27 @@ onMounted(async () => {
   min-width: 0;
   height: 28px;
   padding: 0 8px;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.2s;
-  background-color: #fff;
+  background-color: var(--app-bg-card);
   box-sizing: border-box;
 }
-.worker-compact-card:hover { background-color: #f5f5f5; }
+.worker-compact-card:hover { background-color: var(--app-bg-hover); }
 .worker-compact-card__count {
   font-size: 10px;
-  color: #999;
+  color: var(--app-text-disabled);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;
 }
 .worker-compact-card--active {
   background-color: #e8f0fe;
+  border-color: #4098fc;
+}
+html.app-dark .worker-compact-card--active {
+  background-color: rgba(64, 152, 252, 0.15);
   border-color: #4098fc;
 }
 .worker-compact-card__name {
@@ -487,7 +491,7 @@ onMounted(async () => {
 }
 .worker-compact-card__metric {
   font-size: 11px;
-  color: #333;
+  color: var(--app-text-primary);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;
