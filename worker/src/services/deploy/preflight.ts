@@ -29,7 +29,8 @@ export async function preflight(
     };
   }
 
-  if (!template.compatibility_date && !params.deployType) {
+  // compatibility_date 检查（仅 Worker/hybrid 需要，Pages 不适用）
+  if (!template.compatibility_date && template.type !== 'pages' && !params.deployType) {
     warnings.push('模板未指定 compatibility_date，将使用默认值 2024-11-01');
   }
 

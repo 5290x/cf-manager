@@ -92,16 +92,24 @@
         <!-- Secrets (var/prompt, secret !== false) -->
         <template v-if="secretBindings.length">
           <n-divider>需要填写的密钥</n-divider>
-          <n-form-item v-for="b in secretBindings" :key="b.name" :label="b.name" :required="b.required">
-            <n-input v-model:value="secretValues[b.name]" type="password" show-password-on="click" :placeholder="`输入 ${b.name}`" @update:value="invalidatePreflight" />
+          <n-form-item v-for="b in secretBindings" :key="b.name" :required="b.required">
+            <template #label>
+              <span style="font-weight: 600">{{ b.title || b.name }}</span>
+              <span v-if="b.title" style="color: var(--text-color-3); font-weight: normal; margin-left: 6px; font-size: 12px">{{ b.name }}</span>
+            </template>
+            <n-input v-model:value="secretValues[b.name]" type="password" show-password-on="click" :placeholder="`输入 ${b.title || b.name}`" @update:value="invalidatePreflight" />
           </n-form-item>
         </template>
 
         <!-- Plain config (var/prompt, secret === false) -->
         <template v-if="plainBindings.length">
           <n-divider>需要填写的配置项</n-divider>
-          <n-form-item v-for="b in plainBindings" :key="b.name" :label="b.name" :required="b.required">
-            <n-input v-model:value="secretValues[b.name]" :placeholder="`输入 ${b.name}`" @update:value="invalidatePreflight" />
+          <n-form-item v-for="b in plainBindings" :key="b.name" :required="b.required">
+            <template #label>
+              <span style="font-weight: 600">{{ b.title || b.name }}</span>
+              <span v-if="b.title" style="color: var(--text-color-3); font-weight: normal; margin-left: 6px; font-size: 12px">{{ b.name }}</span>
+            </template>
+            <n-input v-model:value="secretValues[b.name]" :placeholder="`输入 ${b.title || b.name}`" @update:value="invalidatePreflight" />
           </n-form-item>
         </template>
 

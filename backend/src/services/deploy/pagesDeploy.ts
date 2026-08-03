@@ -50,6 +50,12 @@ const SPECIAL_FILES = new Set([
   '_routes.json', 'functions-filepath-routing-config.json',
 ]);
 
+// wrangler 对这些文本配置文件：读为 UTF-8 字符串 → new File([string])
+// _worker.bundle / _worker.js 走 FormData 包装（二进制）
+const TEXT_SPECIAL_FILES = new Set([
+  '_routes.json', '_headers', '_redirects', 'functions-filepath-routing-config.json',
+]);
+
 export interface DeployPageFile { path: string; buffer: Buffer; }
 
 export interface DeployPagesOptions {
@@ -57,6 +63,8 @@ export interface DeployPagesOptions {
   productionBranch?: string;
   branch?: string;
   commitMessage?: string;
+  commitHash?: string;
+  commitDirty?: boolean | string;
   deploymentConfigs?: any;
 }
 
@@ -78,7 +86,13 @@ async function pollDeploymentStatus(
       const json = await resp.json() as any;
       const stage = json?.result?.latest_stage;
       if (stage?.status === 'success') return { status: 'success' };
-      if (stage?.status === 'failure') return { status: 'failure', logs: json?.result?.logs };
+      if (stage?.status === 'failure') {
+        const stages = json?.result?.stages || [];
+        const failed = stages.filter((s: any) => s.status === 'failure');
+        const info = failed.map((s: any) => `${s.name}: ${s.error || s.message || 'unknown'}`).join(' | ')
+          || `${stage.name || 'deploy'} (no error message)`;
+        return { status: 'failure', logs: info };
+      }
     }
     delay = Math.min(delay * 1.5, 10000);
   }
@@ -117,14 +131,34 @@ export async function deployPages(
     await ensurePagesProject(account, name);
   }
 
+  // 如果包含 Functions bundle（_worker.bundle / _worker.js）且调用方没传 deploymentConfigs，
+  // 自动补上 compatibility_date，否则 CF build 阶段直接 failure 且无具体错误信息
+  if (!opts.deploymentConfigs && files && files.some(f => {
+    const p = f.path.replace(/\\/g, '/').replace(/^\/+/, '');
+    return p === '_worker.bundle' || p === '_worker.js';
+  })) {
+    appLogger.info(`[Pages Deploy] Auto-detected Functions bundle, setting compatibility_date`);
+    opts.deploymentConfigs = {
+      production: { compatibility_date: '2024-11-01' },
+      preview: { compatibility_date: '2024-11-01' },
+    };
+  }
+
   // Step 0.5: 设置 deployment_configs（bindings + env）— 修复双端不对称
   if (opts.deploymentConfigs) {
+    appLogger.info(`[Pages Deploy] PATCH deployment_configs: ${JSON.stringify(opts.deploymentConfigs).slice(0, 500)}`);
     try {
-      await proxyFetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}`, {
+      const patchResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...deployHeaders },
         body: JSON.stringify({ deployment_configs: opts.deploymentConfigs }),
       });
+      if (!patchResp.ok) {
+        const errText = await patchResp.text().catch(() => '');
+        appLogger.error(`[Pages Deploy] PATCH deployment_configs FAILED: ${patchResp.status} ${errText.slice(0, 1000)}`);
+      } else {
+        appLogger.info(`[Pages Deploy] PATCH deployment_configs OK`);
+      }
     } catch (e: any) {
       appLogger.warn(`[Pages Deploy] Failed to set deployment_configs: ${e.message}`);
     }
@@ -282,19 +316,52 @@ export async function deployPages(
     }
   }
 
-  // Step 4: 创建 deployment
+  // Step 4: 创建 deployment（与 wrangler 保持一致：可选字段仅在存在时添加）
   const formData = new FormData();
   formData.append('manifest', JSON.stringify(manifest));
-  formData.append('branch', opts.branch || 'main');
-  formData.append('commit_message', opts.commitMessage || '');
-  formData.append('commit_hash', 'direct-upload');
-  formData.append('commit_dirty', 'false');
+
+  if (opts.branch) {
+    formData.append('branch', opts.branch);
+  }
+
+  if (opts.commitMessage) {
+    formData.append('commit_message', opts.commitMessage.length > 384
+      ? opts.commitMessage.slice(0, 384)
+      : opts.commitMessage);
+  }
+
+  if (opts.commitHash) {
+    formData.append('commit_hash', opts.commitHash);
+  }
+
+  if (opts.commitDirty !== undefined) {
+    formData.append('commit_dirty', String(opts.commitDirty));
+  }
 
   for (const sf of specialFiles) {
-    // Buffer → Uint8Array to satisfy BlobPart type under strict mode
-    const view = new Uint8Array(sf.buffer.byteLength);
-    view.set(sf.buffer);
-    formData.append(sf.name, new Blob([view], { type: sf.contentType }), sf.name);
+    if (sf.name === '_worker.bundle') {
+      // _worker.bundle 文件本身就是 wrangler 预先序列化好的 multipart/form-data 二进制
+      // 直接作为 Blob 原样上传，不要重新包装！
+      const view = new Uint8Array(sf.buffer.byteLength);
+      view.set(sf.buffer);
+      formData.append(sf.name, new Blob([view], { type: 'application/octet-stream' }), sf.name);
+    } else if (sf.name === '_worker.js') {
+      // _worker.js 是单文件 JS 入口，需要包装为 FormData(metadata + module)
+      const innerForm = new FormData();
+      innerForm.set('metadata', JSON.stringify({ main_module: '_worker.js' }));
+      innerForm.set('_worker.js', new File([sf.buffer.toString('utf-8')], '_worker.js'));
+      const wrappedBlob = await new Response(innerForm).blob();
+      formData.append(sf.name, wrappedBlob, sf.name);
+    } else if (TEXT_SPECIAL_FILES.has(sf.name)) {
+      // _routes.json / _headers / _redirects / functions-filepath-routing-config.json
+      // 全部 UTF-8 字符串 → new File([string])
+      const text = sf.buffer.toString('utf-8');
+      formData.append(sf.name, new File([text], sf.name));
+    } else {
+      const view = new Uint8Array(sf.buffer.byteLength);
+      view.set(sf.buffer);
+      formData.append(sf.name, new Blob([view], { type: sf.contentType }), sf.name);
+    }
   }
 
   const deployResp = await withRetry(() =>
@@ -314,7 +381,9 @@ export async function deployPages(
   if (deploymentId) {
     const pollResult = await pollDeploymentStatus(account, name, deploymentId);
     if (pollResult.status === 'failure') {
-      appLogger.warn(`[Pages Deploy] Deployment may have failed: ${pollResult.logs || 'unknown'}`);
+      appLogger.warn(`[Pages Deploy] Deployment build stage failed: ${pollResult.logs || 'unknown error'}`);
+    } else {
+      appLogger.info(`[Pages Deploy] Deployment status: ${pollResult.status}`);
     }
   }
 

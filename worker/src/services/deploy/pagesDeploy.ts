@@ -48,6 +48,12 @@ const SPECIAL_FILES = new Set([
   '_routes.json', 'functions-filepath-routing-config.json',
 ]);
 
+// wrangler 对这些文本配置文件：读为 UTF-8 字符串 → new File([string])
+// _worker.bundle / _worker.js 走 FormData 包装（二进制）
+const TEXT_SPECIAL_FILES = new Set([
+  '_routes.json', '_headers', '_redirects', 'functions-filepath-routing-config.json',
+]);
+
 export interface DeployPageFile { path: string; buffer: Uint8Array; }
 
 export interface DeployPagesOptions {
@@ -55,6 +61,8 @@ export interface DeployPagesOptions {
   productionBranch?: string;
   branch?: string;
   commitMessage?: string;
+  commitHash?: string;
+  commitDirty?: boolean | string;
   deploymentConfigs?: any;
 }
 
@@ -118,6 +126,17 @@ export async function deployPages(
   // Step 0: 确保项目存在
   if (!opts.skipCreateProject) {
     await ensurePagesProject(account, encryptionKey, name);
+  }
+
+  // 如果包含 Functions bundle 且调用方没传 deploymentConfigs，自动补上 compatibility_date
+  if (!opts.deploymentConfigs && files && files.some(f => {
+    const p = f.path.replace(/\\/g, '/').replace(/^\/+/, '');
+    return p === '_worker.bundle' || p === '_worker.js';
+  })) {
+    opts.deploymentConfigs = {
+      production: { compatibility_date: '2024-11-01' },
+      preview: { compatibility_date: '2024-11-01' },
+    };
   }
 
   // Step 0.5: 设置 deployment_configs — 修复双端不对称
@@ -282,16 +301,56 @@ export async function deployPages(
     }
   }
 
-  // Step 4: 创建 deployment
+  // Step 4: 创建 deployment（与 wrangler 保持一致：可选字段仅在存在时添加）
   const formData = new FormData();
   formData.append('manifest', JSON.stringify(manifest));
-  formData.append('branch', opts.branch || 'main');
-  formData.append('commit_message', opts.commitMessage || '');
-  formData.append('commit_hash', 'direct-upload');
-  formData.append('commit_dirty', 'false');
+
+  if (opts.branch) {
+    formData.append('branch', opts.branch);
+  }
+
+  if (opts.commitMessage) {
+    formData.append('commit_message', opts.commitMessage.length > 384
+      ? opts.commitMessage.slice(0, 384)
+      : opts.commitMessage);
+  }
+
+  if (opts.commitHash) {
+    formData.append('commit_hash', opts.commitHash);
+  }
+
+  if (opts.commitDirty !== undefined) {
+    formData.append('commit_dirty', String(opts.commitDirty));
+  }
 
   for (const sf of specialFiles) {
-    formData.append(sf.name, new Blob([sf.buffer], { type: sf.contentType }), sf.name);
+    if (sf.name === '_worker.bundle') {
+      // _worker.bundle 文件本身就是 wrangler 预先序列化好的 multipart/form-data 二进制
+      // 直接作为 Blob 原样上传，不要重新包装！
+      formData.append(sf.name, new Blob([sf.buffer], { type: 'application/octet-stream' }), sf.name);
+    } else if (sf.name === '_worker.js') {
+      // _worker.js 是单文件 JS 入口，需要包装为 FormData(metadata + module)
+      const innerForm = new FormData();
+      innerForm.set('metadata', JSON.stringify({ main_module: '_worker.js' }));
+      innerForm.set('_worker.js', new Blob([sf.buffer], { type: 'application/javascript+module' }));
+      const wrappedBlob = await new Response(innerForm).blob();
+      formData.append(sf.name, wrappedBlob, sf.name);
+    } else if (TEXT_SPECIAL_FILES.has(sf.name)) {
+      // _routes.json / _headers / _redirects / functions-filepath-routing-config.json
+      // 全部 UTF-8 字符串 → new Blob([text])
+      const text = new TextDecoder().decode(sf.buffer);
+      formData.append(sf.name, new Blob([text], { type: sf.contentType }), sf.name);
+    } else {
+      formData.append(sf.name, new Blob([sf.buffer], { type: sf.contentType }), sf.name);
+    }
+  }
+      // wrangler 对齐：_routes.json / _headers / _redirects / functions-filepath-routing-config.json
+      // 全部 UTF-8 字符串 → new File([string])（Worker 端用 Blob 替代）
+      const text = new TextDecoder().decode(sf.buffer);
+      formData.append(sf.name, new Blob([text], { type: sf.contentType }), sf.name);
+    } else {
+      formData.append(sf.name, new Blob([sf.buffer], { type: sf.contentType }), sf.name);
+    }
   }
 
   const deployResp = await withRetry(() =>
@@ -310,8 +369,11 @@ export async function deployPages(
   const deploymentId = deployJson?.result?.id;
   if (deploymentId) {
     const pollResult = await pollDeploymentStatus(account, encryptionKey, name, deploymentId);
+    // 早期 polling 经常命中 "failure"，但 CF 端仍可能继续 build → 不要在 polling 失败时阻塞结果
     if (pollResult.status === 'failure') {
-      console.warn(`[Pages Deploy] Deployment may have failed: ${pollResult.logs || 'unknown'}`);
+      console.info(`[Pages Deploy] Polling status: failure (deployment may still complete at Cloudflare): ${pollResult.logs || 'unknown'}`);
+    } else {
+      console.info(`[Pages Deploy] Polling status: ${pollResult.status}`);
     }
   }
 

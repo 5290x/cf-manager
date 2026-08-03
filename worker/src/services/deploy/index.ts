@@ -38,7 +38,7 @@ const MAX_DOWNLOAD = 50 * 1024 * 1024;
 
 async function downloadArtifact(url: string, type: 'worker' | 'pages'): Promise<Uint8Array> {
   const resp = await fetch(url, { redirect: 'follow' });
-  if (!resp.ok) throw new Error(`产物下载失败: HTTP ${resp.status}`);
+  if (!resp.ok) throw new Error(`产物下载失败: HTTP ${resp.status} ${url}`);
   const buffer = new Uint8Array(await resp.arrayBuffer());
   if (buffer.length > MAX_DOWNLOAD) throw new Error('产物超过 50MB 限制');
   if (type === 'pages' && !(buffer[0] === 0x50 && buffer[1] === 0x4b)) {
@@ -190,6 +190,16 @@ async function getWorkerSubdomain(account: Account, encryptionKey: string): Prom
 function buildPagesDeploymentConfigs(template: CatalogTemplate, resolvedBindings: ResolvedBinding[]) {
   const prodConfigs: any = {};
   const previewConfigs: any = {};
+
+  // Pages Functions 需要 compatibility_date / compatibility_flags 才能运行
+  prodConfigs.compatibility_date = template.compatibility_date || '2024-11-01';
+  previewConfigs.compatibility_date = template.compatibility_date || '2024-11-01';
+  const flags = template.compatibility_flags || [];
+  if (flags.length > 0) {
+    prodConfigs.compatibility_flags = [...flags];
+    previewConfigs.compatibility_flags = [...flags];
+  }
+
   if (template.env && Object.keys(template.env).length > 0) {
     prodConfigs.env_vars = {}; previewConfigs.env_vars = {};
     for (const [k, v] of Object.entries(template.env)) {
@@ -197,17 +207,18 @@ function buildPagesDeploymentConfigs(template: CatalogTemplate, resolvedBindings
     }
   }
   const hasResourceBindings = resolvedBindings.some(rb => ['kv', 'd1', 'r2'].includes(rb.type));
-  if (hasResourceBindings) {
-    prodConfigs.kv_namespaces = []; prodConfigs.d1_databases = []; prodConfigs.r2_buckets = [];
-    previewConfigs.kv_namespaces = []; previewConfigs.d1_databases = []; previewConfigs.r2_buckets = [];
-  }
+  // CF Pages PATCH 部署配置字段格式（来自 wrangler 源码确认）：
+  //   kv_namespaces: Record<string, { namespace_id: string }>
+  //   d1_databases:   Record<string, { id: string }>
+  //   r2_buckets:     Record<string, { name: string }>
+  // 全部是 Map/对象形式，不是数组；字段名也是 id / name
   for (const rb of resolvedBindings) {
     const b = rb.cfBinding as any;
     switch (rb.type) {
-      case 'kv': { const e = { binding: b.name, namespace_id: b.namespace_id }; prodConfigs.kv_namespaces.push(e); previewConfigs.kv_namespaces.push(e); break; }
-      case 'd1': { const e = { binding: b.name, database_id: b.id }; prodConfigs.d1_databases.push(e); previewConfigs.d1_databases.push(e); break; }
-      case 'r2': { const e = { binding: b.name, bucket_name: b.bucket_name }; prodConfigs.r2_buckets.push(e); previewConfigs.r2_buckets.push(e); break; }
-      case 'var': { if (!prodConfigs.env_vars) { prodConfigs.env_vars = {}; previewConfigs.env_vars = {}; } prodConfigs.env_vars[b.name] = { value: b.text, type: b.type }; previewConfigs.env_vars[b.name] = { value: b.text, type: b.type }; break; }
+      case 'kv': { if (!prodConfigs.kv_namespaces) { prodConfigs.kv_namespaces = {}; previewConfigs.kv_namespaces = {}; } prodConfigs.kv_namespaces[b.name] = { namespace_id: b.namespace_id }; previewConfigs.kv_namespaces[b.name] = { namespace_id: b.namespace_id }; break; }
+      case 'd1': { if (!prodConfigs.d1_databases) { prodConfigs.d1_databases = {}; previewConfigs.d1_databases = {}; } prodConfigs.d1_databases[b.name] = { id: b.id }; previewConfigs.d1_databases[b.name] = { id: b.id }; break; }
+      case 'r2': { if (!prodConfigs.r2_buckets) { prodConfigs.r2_buckets = {}; previewConfigs.r2_buckets = {}; } prodConfigs.r2_buckets[b.name] = { name: b.bucket_name }; previewConfigs.r2_buckets[b.name] = { name: b.bucket_name }; break; }
+      case 'var': { if (!prodConfigs.env_vars) { prodConfigs.env_vars = {}; previewConfigs.env_vars = {}; } if (!b.text) break; prodConfigs.env_vars[b.name] = { value: b.text, type: b.type }; previewConfigs.env_vars[b.name] = { value: b.text, type: b.type }; break; }
       case 'ai': { prodConfigs.ai = { binding: b.name }; previewConfigs.ai = { binding: b.name }; break; }
     }
   }

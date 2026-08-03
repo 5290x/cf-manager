@@ -52,8 +52,10 @@ export function getContentType(filename: string): string {
     mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac',
     pdf: 'application/pdf', wasm: 'application/wasm',
     map: 'application/json',
+    bundle: 'application/octet-stream',
+    sql: 'text/plain; charset=utf-8',
   };
-  return types[ext] || 'application/null';
+  return types[ext] || 'application/octet-stream';
 }
 
 // 与 wrangler (@cloudflare/deploy-helpers hashFile) 完全一致：
