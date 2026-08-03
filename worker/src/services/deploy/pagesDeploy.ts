@@ -344,14 +344,6 @@ export async function deployPages(
       formData.append(sf.name, new Blob([sf.buffer], { type: sf.contentType }), sf.name);
     }
   }
-      // wrangler 对齐：_routes.json / _headers / _redirects / functions-filepath-routing-config.json
-      // 全部 UTF-8 字符串 → new File([string])（Worker 端用 Blob 替代）
-      const text = new TextDecoder().decode(sf.buffer);
-      formData.append(sf.name, new Blob([text], { type: sf.contentType }), sf.name);
-    } else {
-      formData.append(sf.name, new Blob([sf.buffer], { type: sf.contentType }), sf.name);
-    }
-  }
 
   const deployResp = await withRetry(() =>
     fetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}/deployments`, {
