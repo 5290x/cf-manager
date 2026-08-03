@@ -53,5 +53,8 @@ skills-lock.json
 # Ignore local catalog samples (debug only)
 samples/
 
+# Ignore TypeScript build cache
+*.tsbuildinfo
+
 # Ignore CSV files with credentials
 *.csv

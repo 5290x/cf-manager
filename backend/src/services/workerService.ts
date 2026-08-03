@@ -1,4 +1,4 @@
-import { Account } from '../models/account';
+﻿import { Account } from '../models/account';
 import { getCfClient, getAuthHeaders } from './cfFactory';
 import { proxyFetch, buildCurlCommand } from './proxyService';
 import { fetchScriptSafely } from './ssrfGuard';
@@ -9,13 +9,6 @@ import { appLogger } from './logger';
 import { computeStaticAssetHash, getContentType, extractZipFiles } from './staticAssets';
 export { extractZipFiles };
 
-// Pages 项目名称校验：Cloudflare 要求 ^[a-z0-9][a-z0-9-]*$
-export function validatePagesProjectName(name: string): boolean {
-  return /^[a-z0-9][a-z0-9-]*$/.test(name);
-}
-
-
-
 // Node `Buffer` is not directly assignable to the DOM `BlobPart` type under strict mode
 // (its backing store is typed as `ArrayBufferLike`, which may be a `SharedArrayBuffer`).
 // Copy into an ArrayBuffer-backed Uint8Array so it serializes cleanly as a binary multipart field.
@@ -24,6 +17,13 @@ function bufferToBlobPart(buf: Buffer) {
   view.set(buf);
   return view;
 }
+
+// Pages 项目名称校验：Cloudflare 要求 ^[a-z0-9][a-z0-9-]*$
+export function validatePagesProjectName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9-]*$/.test(name);
+}
+
+
 
 export interface WorkerScript {
   id: string;
@@ -202,7 +202,7 @@ async function deployWorkerAssets(
 // 下载 assets 产物（zip 或 raw 单文件），与 catalogDeploy 的 downloadArtifact 同源。
 async function downloadArtifactForAssets(src: WorkerAssetsInput['source']): Promise<Buffer> {
   const resp = await proxyFetch(src.url, {}, 30000);
-  if (!resp.ok) throw new Error(`assets 产物下载失败: ${resp.status}`);
+  if (!resp.ok) throw new Error(`assets 产物下载失败: ${resp.status} ${src.url}`);
   return Buffer.from(await resp.arrayBuffer());
 }
 
@@ -952,207 +952,4 @@ export async function ensurePagesProject(account: Account, projectName: string):
   } catch (e: any) {
     if (e?.status !== 409) throw e;  // 409 = already exists, ignore
   }
-}
-
-// ============ Pages 部署：wrangler 四步上传法 ============
-export async function deployPages(
-  account: Account,
-  projectName: string,
-  files: Array<{ path: string; buffer: Buffer }>,
-  skipCreateProject = false,
-): Promise<any> {
-  const accountId = account.account_id;
-  if (!accountId) throw new Error('Account ID is required');
-
-  const authHeaders = getAuthHeaders(account);
-  const cf = getCfClient(account);
-
-  if (!skipCreateProject) {
-    await ensurePagesProject(account, projectName);
-  }
-
-  if (!files || files.length === 0) {
-    appLogger.info(`[Pages Deploy V2] Created empty project: ${projectName}`);
-    return await cf.pages.projects.get(projectName, { account_id: accountId! });
-  }
-
-  // 特殊文件：不进 manifest，作为 multipart 字段随 deployment 请求上传（与 wrangler 一致）
-  const SPECIAL_FILES = new Set([
-    '_worker.js', '_worker.bundle', '_headers', '_redirects', '_routes.json',
-    'functions-filepath-routing-config.json',
-  ]);
-
-  const normalizedFiles = files.map(f => ({
-    ...f,
-    path: f.path.replace(/\\/g, '/').replace(/^\/+/, ''),
-  }));
-
-  const specialFiles: Array<{ path: string; buffer: Buffer }> = [];
-  const assetFiles: Array<{ path: string; buffer: Buffer }> = [];
-
-  for (const f of normalizedFiles) {
-    const basename = f.path.split('/').pop() || f.path;
-    if (!f.path.includes('/') && SPECIAL_FILES.has(basename)) {
-      specialFiles.push(f);
-    } else {
-      assetFiles.push(f);
-    }
-  }
-
-  appLogger.info(`[Pages Deploy V2] Total: ${files.length} files | Assets: ${assetFiles.length} | Special: ${specialFiles.length}`);
-
-  // ---- Step 1: 获取 upload JWT ----
-  // wrangler: fetchResult(`/accounts/${accountId}/pages/projects/${projectName}/upload-token`)
-  appLogger.info(`[Pages Deploy V2] Step 1: Fetching upload JWT...`);
-  let jwt: string;
-  {
-    const resp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${projectName}/upload-token`, {
-      method: 'GET',
-      headers: { ...authHeaders },
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`[Pages Deploy V2] Failed to get upload token: ${resp.status} ${text}`);
-    }
-    const json = await resp.json();
-    jwt = json?.result?.jwt;
-    if (!jwt) throw new Error(`[Pages Deploy V2] Upload token response missing jwt: ${JSON.stringify(json)}`);
-  }
-  appLogger.info(`[Pages Deploy V2] Got upload JWT`);
-
-  // ---- Step 2: 计算 hash + check-missing ----
-  // wrangler: validate() 计算 hash → upload() 内部先 check-missing
-  appLogger.info(`[Pages Deploy V2] Step 2: Computing hashes & checking missing assets...`);
-  const manifest: Record<string, string> = {};
-  const hashToFile = new Map<string, { buffer: Buffer; contentType: string }>();
-
-  for (const f of assetFiles) {
-    const manifestKey = '/' + f.path; // wrangler manifest key 以 / 开头
-    const hash = await computeStaticAssetHash(f.buffer, f.path);
-    manifest[manifestKey] = hash;
-    // 同 hash 的文件只上传一次（内容寻址去重）
-    if (!hashToFile.has(hash)) {
-      hashToFile.set(hash, { buffer: f.buffer, contentType: getContentType(f.path) });
-    }
-  }
-
-  const allHashes = [...hashToFile.keys()];
-  appLogger.info(`[Pages Deploy V2] Manifest: ${Object.keys(manifest).length} entries, unique hashes: ${allHashes.length}`);
-
-  let missingHashes: string[];
-  {
-    const resp = await proxyFetch(`${CF_BASE}/pages/assets/check-missing`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${jwt}`,
-      },
-      body: JSON.stringify({ hashes: allHashes }),
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`[Pages Deploy V2] check-missing failed: ${resp.status} ${text}`);
-    }
-    const json = await resp.json();
-    missingHashes = json.result || [];
-  }
-  appLogger.info(`[Pages Deploy V2] Missing assets: ${missingHashes.length}/${allHashes.length} (need upload)`);
-
-  // ---- Step 3: 上传缺失的资源 ----
-  // wrangler: POST /pages/assets/upload, body = [{ key: hash, value: base64(content), metadata: { contentType }, base64: true }]
-  // 分批上传，每批不超过 50 个文件或 ~20MB（wrangler 用 bucket 策略 + 并发 3，这里简化为顺序分批）
-  if (missingHashes.length > 0) {
-    appLogger.info(`[Pages Deploy V2] Step 3: Uploading ${missingHashes.length} missing assets...`);
-    const BATCH_SIZE = 50;
-    const BATCH_BYTES = 20 * 1024 * 1024;
-
-    for (let i = 0; i < missingHashes.length; i += BATCH_SIZE) {
-      const batch = missingHashes.slice(i, i + BATCH_SIZE);
-      const payload: Array<{ key: string; value: string; metadata: { contentType: string }; base64: boolean }> = [];
-      let batchBytes = 0;
-
-      for (const hash of batch) {
-        const fileInfo = hashToFile.get(hash);
-        if (!fileInfo) continue;
-        const base64Content = fileInfo.buffer.toString('base64');
-        batchBytes += base64Content.length;
-        payload.push({
-          key: hash,
-          value: base64Content,
-          metadata: { contentType: fileInfo.contentType },
-          base64: true,
-        });
-      }
-
-      appLogger.info(`[Pages Deploy V2] Uploading batch ${Math.floor(i / BATCH_SIZE) + 1}: ${payload.length} files, ~${Math.round(batchBytes / 1024)}KB`);
-
-      const resp = await proxyFetch(`${CF_BASE}/pages/assets/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwt}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`[Pages Deploy V2] Asset upload failed (batch ${Math.floor(i / BATCH_SIZE) + 1}): ${resp.status} ${text}`);
-      }
-
-      // 超过单批大小限制时提前进入下一批（防止 payload 过大）
-      if (batchBytes >= BATCH_BYTES) {
-        appLogger.info(`[Pages Deploy V2] Batch exceeded ${BATCH_BYTES / 1024 / 1024}MB limit, continuing to next batch`);
-      }
-    }
-
-    // upsert-hashes：注册已上传的 hash，加速下次部署（非致命，失败仅告警）
-    // wrangler: POST /pages/assets/upsert-hashes, body = { hashes: [...] }
-    try {
-      await proxyFetch(`${CF_BASE}/pages/assets/upsert-hashes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({ hashes: allHashes }),
-      });
-    } catch (e: any) {
-      appLogger.warn(`[Pages Deploy V2] upsert-hashes failed (non-fatal): ${e.message}`);
-    }
-  }
-
-  // ---- Step 4: 创建 deployment ----
-  // wrangler: POST /accounts/{accountId}/pages/projects/{projectName}/deployments
-  // FormData: manifest(JSON string) + branch + commit_message + commit_hash + commit_dirty + [特殊文件]
-  // 注意：普通资源文件不在此请求中，它们已通过 /pages/assets/upload 上传
-  appLogger.info(`[Pages Deploy V2] Step 4: Creating deployment...`);
-  const formData = new FormData();
-  formData.append('manifest', JSON.stringify(manifest));
-  formData.append('branch', 'main');
-  formData.append('commit_message', 'Deploy via CF Manager');
-  formData.append('commit_hash', 'direct-upload');
-  formData.append('commit_dirty', 'false');
-
-  for (const f of specialFiles) {
-    const basename = f.path.split('/').pop() || f.path;
-    formData.append(basename, new File([bufferToBlobPart(f.buffer)], basename, { type: getContentType(f.path) }));
-    appLogger.info(`[Pages Deploy V2] Special file: ${basename} (${f.buffer.length} bytes)`);
-  }
-
-  appLogger.info(`[Pages Deploy V2] POST deployments | manifest: ${Object.keys(manifest).length} entries | special: ${specialFiles.length}`);
-  // FormData 请求使用原生 fetch（与 deployWorker 一致，避免 node-fetch v2 对原生 FormData 的兼容问题）
-  const deployResp = await fetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${projectName}/deployments`, {
-    method: 'POST',
-    headers: { ...authHeaders },
-    body: formData,
-  });
-  const deployJson = await deployResp.json() as any;
-  if (!deployResp.ok || !deployJson.success) {
-    throw new Error(`[Pages Deploy V2] Deployment failed: ${deployResp.status} ${JSON.stringify(deployJson)}`);
-  }
-
-  const depResult = deployJson.result;
-  appLogger.info(`[Pages Deploy V2] Deployment created: ${depResult?.url || '(no url)'}`);
-  appLogger.info(`[Pages Deploy V2] Deployment env: ${depResult?.environment} | id: ${depResult?.id}`);
-  return depResult;
 }

@@ -4,7 +4,8 @@ import { getAccountById, getActiveAccountsByFeature, addAuditLog } from '../db/m
 import { cfFetch, cfFetchRaw, cfFetchAll } from '../services/cfApi';
 import { getWorkersUsageToday } from '../services/quotaTracker';
 import { demoDestructiveGuard } from '../services/demo';
-import { deployPages, extractZipFiles, validatePagesProjectName, ensurePagesProject } from '../services/pagesDeploy';
+import { deployPages } from '../services/deploy/pagesDeploy';
+import { extractZipFiles, validatePagesProjectName, ensurePagesProject } from '../services/pagesDeploy';
 import { deployWorker } from '../services/assetsDeploy';
 import { fetchScriptSafely } from '../services/ssrfGuard';
 

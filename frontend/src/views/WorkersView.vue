@@ -3,7 +3,7 @@
     <n-space justify="space-between" align="center" :wrap="true">
       <n-h2 style="margin: 0">Workers & Pages 管理</n-h2>
       <n-space>
-        <n-button size="small" @click="openBatchDeploy" :disabled="!workerStore.workers.length">批量部署</n-button>
+        <n-button size="small" @click="openBatchDeploy" :disabled="!allAccounts.length">批量部署</n-button>
         <n-button size="small" type="primary" @click="openDeploy()" :disabled="!accountStore.accounts.length">部署</n-button>
       </n-space>
     </n-space>
@@ -153,15 +153,11 @@
             <n-radio value="pages">Pages</n-radio>
           </n-radio-group>
         </n-form-item>
-        <n-form-item :label="batchType === 'worker' ? '目标 Workers' : '目标 Pages'">
-          <n-checkbox-group v-model:value="batchTargets">
-            <n-space vertical>
-              <n-checkbox v-for="w in workerStore.workers.filter((w: any) => w.type === batchType)" :key="`${w.cfAccountId}-${w.name}`" :value="`${w.cfAccountId}:${w.name}`">
-                {{ w.accountName }} / {{ w.name }}
-              </n-checkbox>
-              <n-text v-if="!workerStore.workers.filter((w: any) => w.type === batchType).length" depth="3">暂无可用的 {{ batchType === 'worker' ? 'Worker' : 'Pages' }}</n-text>
-            </n-space>
-          </n-checkbox-group>
+        <n-form-item label="目标账户">
+          <n-select v-model:value="batchTargets" :options="batchAccountOptions" multiple placeholder="选择目标账户" />
+        </n-form-item>
+        <n-form-item :label="batchType === 'worker' ? 'Worker 名称' : 'Pages 名称'">
+          <n-input v-model:value="batchName" :placeholder="batchType === 'worker' ? '将在所有选中账户上部署同名 Worker' : '将在所有选中账户上创建同名 Pages 项目'" />
         </n-form-item>
         <template v-if="batchType === 'worker'">
           <n-form-item label="脚本来源">
@@ -196,7 +192,7 @@
       </div>
       <template #action>
         <n-button @click="showBatchDeployModal = false">关闭</n-button>
-        <n-button type="primary" :loading="batchDeploying" @click="handleBatchDeploy" :disabled="!batchTargets.length">部署</n-button>
+        <n-button type="primary" :loading="batchDeploying" @click="handleBatchDeploy" :disabled="!batchTargets.length || !batchName.trim()">部署</n-button>
       </template>
     </n-modal>
 
@@ -394,7 +390,8 @@ const columns = computed<DataTableColumns<any>>(() => {
 // ============ Batch Deploy ============
 const showBatchDeployModal = ref(false);
 const batchType = ref<'worker' | 'pages'>('worker');
-const batchTargets = ref<string[]>([]);
+const batchTargets = ref<number[]>([]);
+const batchName = ref('');
 const batchSource = ref<'file' | 'url'>('file');
 const batchFile = ref<File | null>(null);
 const batchAssetsFile = ref<File | null>(null);
@@ -403,9 +400,17 @@ const batchMainModule = ref('');
 const batchDeploying = ref(false);
 const batchResults = ref<any[]>([]);
 
+// 批量部署可选账户（所有启用 workers 功能的活跃账户）
+const batchAccountOptions = computed(() =>
+  allAccounts.value
+    .filter((a: any) => a.is_active && (a.enabled_features || 'ai,workers,browser_render,dns,storage').includes('workers'))
+    .map((a: any) => ({ label: `${a.name} (${a.email || a.id})`, value: a.id }))
+);
+
 function openBatchDeploy() {
-  batchType.value = workerStore.workers.some((w: any) => w.type === 'worker') ? 'worker' : 'pages';
+  batchType.value = 'worker';
   batchTargets.value = [];
+  batchName.value = '';
   batchFile.value = null;
   batchAssetsFile.value = null;
   batchUrl.value = '';
@@ -415,10 +420,11 @@ function openBatchDeploy() {
 }
 
 async function handleBatchDeploy() {
-  const targets = batchTargets.value.map(t => {
-    const [accountId, workerName] = t.split(':');
-    return { accountId: Number(accountId), workerName };
-  });
+  if (!batchName.value.trim()) { message.warning('请输入部署名称'); return; }
+  const targets = batchTargets.value.map(accountId => ({
+    accountId,
+    workerName: batchName.value.trim(),
+  }));
   batchDeploying.value = true;
   try {
     if (batchType.value === 'worker') {

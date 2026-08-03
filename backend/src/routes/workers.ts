@@ -5,7 +5,7 @@ import { createAuditLog } from '../models/auditLog';
 import { appLogger } from '../services/logger';
 import { getAccountOr404, demoDestructiveGuard } from './routeUtils';
 import {
-  listWorkers, listPages, deployWorker, deployWorkerFromUrl, deleteWorker, deletePagesProject, getWorkerLogs, deployPages, WorkerAssetsInput,
+  listWorkers, listPages, deployWorker, deployWorkerFromUrl, deleteWorker, deletePagesProject, getWorkerLogs, WorkerAssetsInput,
   extractZipFiles, validatePagesProjectName,
   // Secrets
   listSecrets, updateSecret, deleteSecret,
@@ -30,6 +30,7 @@ import {
   // Usage
   getWorkersUsageToday,
 } from '../services/workerService';
+import { deployPages } from '../services/deploy/pagesDeploy';
 import { getAllZones } from '../services/accountRouter';
 
 // 手动/批量 Worker 部署：script 可为单个 .js（单模块）或 .zip（多模块包）+ 可选 assets（zip 较大放宽到 50MB，与 Pages 一致）
@@ -195,7 +196,8 @@ async function handlePagesDeploy(req: Request, res: Response, next: NextFunction
     }
     
     const skipCreateProject = req.body.skipCreateProject === 'true' || req.body.skipCreateProject === true;
-    const result = await deployPages(account, name, files, skipCreateProject);
+    const deploymentConfigs = { branch: 'main' };
+    const result = await deployPages(account, name, files, { skipCreateProject, ...deploymentConfigs });
     createAuditLog(account.id, 'deploy_pages', name, files.length > 0 ? `${files.length} files` : 'empty project', 'success');
     appLogger.info(`[Pages Deploy Route] Success for ${name}`);
     // 剥离 CF API 返回的 success 字段，避免与 responseWrapper 中间件冲突导致双重包装

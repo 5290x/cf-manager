@@ -34,4 +34,18 @@ export const storeApi = {
     traces?: boolean;   // Workers 跟踪（默认开启）
     logs?: boolean;     // Workers 日志（默认开启）
   }) => apiClient.post('/store/deploy', data, { timeout: 120000 }),
+
+  // Deploy Batch (多账户批量部署: 自动预检 + 部署)
+  deployBatch: (data: {
+    deployments: Array<{
+      accountId: number;
+      templateId: string;
+      name: string;
+      bindingSelections?: Record<string, any>;
+      secretValues?: Record<string, string>;
+      deployType?: 'worker' | 'pages' | 'both';
+      traces?: boolean;
+      logs?: boolean;
+    }>;
+  }) => apiClient.post('/store/deploy-batch', data, { timeout: 300000 }),
 };

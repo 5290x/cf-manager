@@ -339,5 +339,62 @@ router.post('/deploy', async (req: Request, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
+// ============ Batch Deploy (多账户批量部署) ============
+
+router.post('/deploy-batch', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { deployments } = req.body;
+    if (!Array.isArray(deployments) || deployments.length === 0) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'deployments must be a non-empty array' } });
+      return;
+    }
+
+    const firstDeployment = deployments[0];
+    const template = await findTemplate(firstDeployment.templateId);
+    if (!template) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Template not found' } }); return; }
+
+    const results = await Promise.allSettled(deployments.map(async (d: any) => {
+      const account = getAccountById(parseInt(d.accountId, 10));
+      if (!account) return { accountId: d.accountId, name: d.name, success: false, error: 'Account not found' };
+
+      // Preflight
+      const pfResult = await preflightDeploy({
+        account, template, name: d.name,
+        bindingSelections: d.bindingSelections || {},
+        secretValues: d.secretValues || {},
+        deployType: d.deployType || undefined,
+      });
+
+      if (!pfResult.canProceed) {
+        const pfErrors = pfResult.warnings?.join('; ') || '预检未通过';
+        return { accountId: d.accountId, name: d.name, success: false, error: pfErrors };
+      }
+
+      // Deploy
+      const result = await deployTemplate({
+        account, template, name: d.name,
+        bindingSelections: d.bindingSelections || {},
+        secretValues: d.secretValues || {},
+        deployType: d.deployType || undefined,
+        traces: d.traces !== false,
+        logs: d.logs !== false,
+      });
+
+      return {
+        accountId: d.accountId,
+        name: d.name,
+        success: result.success,
+        error: result.success ? undefined : (result.error || '部署失败'),
+        warnings: result.warnings,
+      };
+    }));
+
+    const output = results.map((r: any) =>
+      r.status === 'fulfilled' ? r.value : { success: false, error: r.reason?.message || '未知错误' }
+    );
+    res.json(output);
+  } catch (err) { next(err); }
+});
+
 export default router;
 export { refreshSource as refreshCatalogSource, DEFAULT_CATALOG_URL, DEFAULT_CATALOG_NAME };

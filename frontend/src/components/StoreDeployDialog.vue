@@ -4,10 +4,15 @@
       <n-form v-if="template" label-placement="top" size="small">
         <!-- Account -->
         <n-form-item label="目标账户" required>
-          <n-select v-model:value="form.accountId" :options="accountOptions" :render-label="renderAccountLabel" filterable placeholder="选择账户" @update:value="onAccountChange" />
+          <n-select v-model:value="form.accountIds" :options="accountOptions" :render-label="renderAccountLabel" multiple filterable placeholder="选择目标账户（可多选）" @update:value="onAccountChange" />
           <template v-if="needsR2" #feedback>
             <n-text type="warning" depth="3" style="font-size: 12px">
               该模板需要 R2，仅显示已开通 R2 的账户
+            </n-text>
+          </template>
+          <template v-if="isMultiAccount" #feedback>
+            <n-text depth="3" style="font-size: 12px">
+              多账户模式下，绑定资源将自动在每个账户上创建或按名称复用
             </n-text>
           </template>
         </n-form-item>
@@ -71,6 +76,7 @@
                 v-model:value="bindingSelections[b.name].value"
                 :options="getResourceOptions(b)"
                 :loading="resourceLoading[b.type]"
+                :disabled="isMultiAccount"
                 placeholder="选择资源"
                 @update:value="(val: string) => { onBindingSelect(b, val); invalidatePreflight(); }"
               />
@@ -78,6 +84,7 @@
               <n-checkbox
                 v-if="b.type === 'd1' && (b.initSqlUrl || b.initSql)"
                 v-model:checked="bindingSelections[b.name].runInitSql"
+                :disabled="isMultiAccount"
                 @update:checked="invalidatePreflight"
               >
                 执行初始化 SQL
@@ -92,16 +99,24 @@
         <!-- Secrets (var/prompt, secret !== false) -->
         <template v-if="secretBindings.length">
           <n-divider>需要填写的密钥</n-divider>
-          <n-form-item v-for="b in secretBindings" :key="b.name" :label="b.name" :required="b.required">
-            <n-input v-model:value="secretValues[b.name]" type="password" show-password-on="click" :placeholder="`输入 ${b.name}`" @update:value="invalidatePreflight" />
+          <n-form-item v-for="b in secretBindings" :key="b.name" :required="b.required">
+            <template #label>
+              <span style="font-weight: 600">{{ b.title || b.name }}</span>
+              <span v-if="b.title" style="color: var(--text-color-3); font-weight: normal; margin-left: 6px; font-size: 12px">{{ b.name }}</span>
+            </template>
+            <n-input v-model:value="secretValues[b.name]" type="password" show-password-on="click" :placeholder="`输入 ${b.title || b.name}`" @update:value="invalidatePreflight" />
           </n-form-item>
         </template>
 
         <!-- Plain config (var/prompt, secret === false) -->
         <template v-if="plainBindings.length">
           <n-divider>需要填写的配置项</n-divider>
-          <n-form-item v-for="b in plainBindings" :key="b.name" :label="b.name" :required="b.required">
-            <n-input v-model:value="secretValues[b.name]" :placeholder="`输入 ${b.name}`" @update:value="invalidatePreflight" />
+          <n-form-item v-for="b in plainBindings" :key="b.name" :required="b.required">
+            <template #label>
+              <span style="font-weight: 600">{{ b.title || b.name }}</span>
+              <span v-if="b.title" style="color: var(--text-color-3); font-weight: normal; margin-left: 6px; font-size: 12px">{{ b.name }}</span>
+            </template>
+            <n-input v-model:value="secretValues[b.name]" :placeholder="`输入 ${b.title || b.name}`" @update:value="invalidatePreflight" />
           </n-form-item>
         </template>
 
@@ -125,14 +140,11 @@
         <template v-if="preflightResult && hasPreflightDetails">
           <n-divider>预检结果</n-divider>
           <n-space vertical :size="12">
-            <!-- Status tags -->
             <n-space align="center" :size="8">
               <n-tag :type="preflightResult.workerExists ? 'warning' : 'success'" size="small" :bordered="false">
                 {{ preflightResult.workerExists ? 'Worker 已存在（将使用版本化部署）' : '新 Worker（将使用传统部署）' }}
               </n-tag>
             </n-space>
-
-            <!-- Config Diff -->
             <template v-if="preflightResult.configDiff">
               <n-space vertical :size="4">
                 <n-text v-if="preflightResult.configDiff.added.length" depth="2" style="font-size: 13px">
@@ -146,13 +158,9 @@
                 </n-text>
               </n-space>
             </template>
-
-            <!-- Secrets Override -->
             <n-alert v-if="preflightResult.secretsOverride.length" type="warning" :show-icon="true" style="font-size: 13px">
               以下 Secrets 需要填写值: {{ preflightResult.secretsOverride.join(', ') }}
             </n-alert>
-
-            <!-- Warnings -->
             <n-alert
               v-for="(w, i) in preflightResult.warnings"
               :key="i"
@@ -162,6 +170,20 @@
             >
               {{ w }}
             </n-alert>
+          </n-space>
+        </template>
+
+        <!-- 多账户部署结果 -->
+        <template v-if="batchDeployResults.length">
+          <n-divider>部署结果</n-divider>
+          <n-space vertical :size="6">
+            <n-space v-for="r in batchDeployResults" :key="`result-${r.accountId}`" align="center" :size="6">
+              <n-tag :type="r.success ? 'success' : 'error'" size="small" :bordered="false">
+                {{ r.success ? '成功' : '失败' }}
+              </n-tag>
+              <n-text style="font-size: 13px">{{ r.accountName || `账户#${r.accountId}` }}</n-text>
+              <n-text v-if="!r.success" type="error" depth="3" style="font-size: 12px">{{ r.error }}</n-text>
+            </n-space>
           </n-space>
         </template>
       </n-form>
@@ -207,11 +229,12 @@ const deployType = ref<'worker' | 'pages' | 'both'>('both');
 const enableLogs = ref(true);    // Workers 日志（默认开启）
 const enableTraces = ref(true);  // Workers 跟踪（默认开启）
 const accounts = ref<any[]>([]);
-const form = ref({ accountId: null as number | null, name: '' });
+const form = ref({ accountIds: [] as number[], name: '' });
 const bindingSelections = ref<Record<string, { value: string; mode: 'auto' | 'existing'; existingId?: string; runInitSql: boolean }>>({});
 const secretValues = ref<Record<string, string>>({});
 const resourceLoading = ref<Record<string, boolean>>({});
 const existingResources = ref<Record<string, any[]>>({ kv: [], d1: [], r2: [] });
+const batchDeployResults = ref<Array<{ accountId: number; accountName?: string; success: boolean; error?: string }>>([]);
 
 // 模板是否需要 R2：存在 type 为 r2 的绑定
 const needsR2 = computed(() =>
@@ -275,12 +298,15 @@ const plainBindings = computed(() =>
 );
 
 const canDeploy = computed(() => {
-  if (!form.value.accountId || !form.value.name) return false;
+  if (!form.value.accountIds.length || !form.value.name) return false;
   for (const b of [...secretBindings.value, ...plainBindings.value]) {
     if (b.required && !secretValues.value[b.name]) return false;
   }
   return true;
 });
+
+// 是否为多账户部署模式
+const isMultiAccount = computed(() => form.value.accountIds.length > 1);
 
 function getResourceOptions(binding: any) {
   const resources = existingResources.value[binding.type] || [];
@@ -312,8 +338,11 @@ function invalidatePreflight() {
 
 async function onAccountChange() {
   invalidatePreflight();
-  if (!form.value.accountId) return;
-  // 只拉取当前模板实际用到的资源类型，避免对未开通 R2 的账号无谓调用 R2 API 而误报 "R2 is not enabled"
+  batchDeployResults.value = [];
+  const selectedIds = form.value.accountIds;
+  if (!selectedIds.length) return;
+  // 多账户模式下，加载第一个账户的资源供参考（所有账户都会使用 auto 模式）
+  const firstId = selectedIds[0];
   const neededTypes = (Array.from(new Set((props.template?.bindings || []).map((b: any) => b.type))))
     .filter((t: any) => t === 'kv' || t === 'd1' || t === 'r2') as ('kv' | 'd1' | 'r2')[];
   if (neededTypes.length === 0) return;
@@ -321,13 +350,13 @@ async function onAccountChange() {
     resourceLoading.value[type] = true;
     try {
       if (type === 'kv') {
-        const { data } = await workersApi.getKvNamespaces(form.value.accountId);
+        const { data } = await workersApi.getKvNamespaces(firstId);
         existingResources.value.kv = data as any[];
       } else if (type === 'd1') {
-        const { data } = await workersApi.getD1Databases(form.value.accountId);
+        const { data } = await workersApi.getD1Databases(firstId);
         existingResources.value.d1 = data as any[];
       } else if (type === 'r2') {
-        const { data } = await workersApi.getR2Buckets(form.value.accountId, { _silent: true });
+        const { data } = await workersApi.getR2Buckets(firstId, { _silent: true });
         existingResources.value.r2 = data as any[];
       }
     } catch (e: any) {
@@ -357,19 +386,22 @@ function buildSelections(): Record<string, any> {
 
 /**
  * 统一部署入口 — 点击「确认部署」时自动先预检：
- *
- * 1. 已有预检结果且 canProceed=true 且有需要确认的细节 → 直接部署（用户已点过「确认部署」）
- * 2. 其他情况 → 先调用 preflight API
- *    a. 预检通过且无警告/diff → 自动继续部署（无缝体验）
- *    b. 预检有警告/diff → 展示结果，等用户再次点「确认部署」
- *    c. 预检失败 → message.error 提示，不继续部署
+ * 多账户模式：逐个预检并部署，显示每个账户的结果
+ * 单账户模式：保持原有两阶段流程
  */
 async function handleDeploy() {
   if (!canDeploy.value) return;
 
+  // 多账户模式：逐个预检 + 部署
+  if (isMultiAccount.value) {
+    await doBatchDeploy();
+    return;
+  }
+
+  // 单账户模式：保持原有流程
   // 情况 1：已有预检结果且用户已确认
   if (preflightResult.value?.canProceed && hasPreflightDetails.value) {
-    await doDeploy();
+    await doDeploy(form.value.accountIds[0]);
     return;
   }
 
@@ -378,7 +410,7 @@ async function handleDeploy() {
   try {
     const selections = buildSelections();
     const { data: pfData } = await storeApi.preflight({
-      accountId: form.value.accountId!,
+      accountId: form.value.accountIds[0],
       templateId: props.template.id,
       name: form.value.name,
       bindingSelections: selections,
@@ -392,12 +424,10 @@ async function handleDeploy() {
       return;
     }
 
-    // 预检通过且无需要确认的细节 → 自动继续部署
     if (!hasPreflightDetails.value) {
       preflighting.value = false;
-      await doDeploy();
+      await doDeploy(form.value.accountIds[0]);
     }
-    // 否则展示预检结果，等用户确认
   } catch (e: any) {
     preflightResult.value = null;
     message.error(`预检失败: ${e.errorMessage || e.message || '未知错误'}`);
@@ -406,13 +436,13 @@ async function handleDeploy() {
   }
 }
 
-async function doDeploy() {
+async function doDeploy(accountId: number) {
   deploying.value = true;
   try {
     const selections = buildSelections();
 
     const result = await storeApi.deploy({
-      accountId: form.value.accountId!,
+      accountId,
       templateId: props.template.id,
       name: form.value.name,
       bindingSelections: selections,
@@ -423,6 +453,7 @@ async function doDeploy() {
     });
 
     emit('deployed', result);
+    visible.value = false;
   } catch (e: any) {
     const errData = e?.response?.data?.error;
     emit('deployed', {
@@ -436,17 +467,78 @@ async function doDeploy() {
   }
 }
 
+/**
+ * 多账户批量部署：调用后端 /store/deploy-batch 一次性完成预检 + 部署
+ */
+async function doBatchDeploy() {
+  deploying.value = true;
+  batchDeployResults.value = [];
+  const selections = buildSelections();
+
+  try {
+    const { data } = await storeApi.deployBatch({
+      deployments: form.value.accountIds.map(accountId => ({
+        accountId,
+        templateId: props.template.id,
+        name: form.value.name,
+        bindingSelections: selections,
+        secretValues: secretValues.value,
+        deployType: props.template.type === 'hybrid' ? deployType.value : undefined,
+        logs: enableLogs.value,
+        traces: enableTraces.value,
+      })),
+    });
+
+    const results = (Array.isArray(data) ? data : []).map((r: any) => {
+      const account = accounts.value.find((a: any) => a.id === r.accountId);
+      return {
+        accountId: r.accountId,
+        accountName: account?.name || `账户 #${r.accountId}`,
+        success: r.success,
+        error: r.error,
+      };
+    });
+
+    batchDeployResults.value = results;
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.length - successCount;
+
+    if (failCount === 0) {
+      message.success(`批量部署完成: ${successCount}/${results.length} 成功`);
+      emit('deployed', { success: true, batchResults: results });
+      visible.value = false;
+    } else {
+      message.warning(`批量部署: ${successCount} 成功, ${failCount} 失败`);
+      emit('deployed', { success: false, batchResults: results });
+    }
+  } catch (e: any) {
+    batchDeployResults.value = form.value.accountIds.map(accountId => {
+      const account = accounts.value.find((a: any) => a.id === accountId);
+      return {
+        accountId,
+        accountName: account?.name || `账户 #${accountId}`,
+        success: false,
+        error: e.errorMessage || e.message || '批量部署请求失败',
+      };
+    });
+    message.error(`批量部署失败: ${e.errorMessage || e.message || '未知错误'}`);
+  } finally {
+    deploying.value = false;
+  }
+}
+
 // Reset form when template changes
 watch(() => props.template, (tmpl) => {
   if (tmpl) {
     form.value.name = tmpl.id;
-    form.value.accountId = null;
+    form.value.accountIds = [];
     secretValues.value = {};
     bindingSelections.value = {};
     existingResources.value = { kv: [], d1: [], r2: [] };
     enableLogs.value = true;
     enableTraces.value = true;
     preflightResult.value = null;
+    batchDeployResults.value = [];
     const prefilledSecrets: Record<string, string> = {};
     for (const b of (tmpl.bindings || [])) {
       if (['kv', 'd1', 'r2'].includes(b.type)) {
@@ -460,6 +552,18 @@ watch(() => props.template, (tmpl) => {
     loadAccounts();
   }
 }, { immediate: true });
+
+// 多账户模式：强制把所有 binding 切换为 auto 模式（每个账户独立创建或按名称复用）
+watch(isMultiAccount, (multi) => {
+  if (!multi) return;
+  for (const b of resourceBindings.value) {
+    bindingSelections.value[b.name] = {
+      value: '__auto__',
+      mode: 'auto',
+      runInitSql: b.type === 'd1',
+    };
+  }
+});
 
 async function loadAccounts() {
   try {

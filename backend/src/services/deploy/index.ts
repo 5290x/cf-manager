@@ -38,7 +38,7 @@ const MAX_DOWNLOAD = 50 * 1024 * 1024;
 
 async function downloadArtifact(url: string, type: 'worker' | 'pages'): Promise<Buffer> {
   const resp = await proxyFetch(url, {}, 30000);
-  if (!resp.ok) throw new Error(`产物下载失败: ${resp.status}`);
+  if (!resp.ok) throw new Error(`产物下载失败: ${resp.status} ${url}`);
   const buffer = Buffer.from(await resp.arrayBuffer());
   if (buffer.length > MAX_DOWNLOAD) throw new Error('产物超过 50MB 限制');
   if (type === 'pages' && !(buffer[0] === 0x50 && buffer[1] === 0x4b)) {
@@ -205,6 +205,18 @@ function buildPagesDeploymentConfigs(template: CatalogTemplate, resolvedBindings
   const prodConfigs: any = {};
   const previewConfigs: any = {};
 
+  // Pages Functions 需要 compatibility_date / compatibility_flags 才能运行
+  // 否则 functions/ 下的代码不会被 Cloudflare 识别，请求直接落到静态文件（返回 HTML）
+  prodConfigs.compatibility_date = template.compatibility_date || '2024-11-01';
+  previewConfigs.compatibility_date = template.compatibility_date || '2024-11-01';
+  const flags = template.compatibility_flags || [];
+  // 自动检测是否包含 functions/ 目录（repo-archive 部署通常都有 functions/），
+  // 存在时追加 nodejs_compat 确保 Node.js 互操作正常工作
+  if (flags.length > 0) {
+    prodConfigs.compatibility_flags = [...flags];
+    previewConfigs.compatibility_flags = [...flags];
+  }
+
   if (template.env && Object.keys(template.env).length > 0) {
     prodConfigs.env_vars = {};
     previewConfigs.env_vars = {};
@@ -215,39 +227,41 @@ function buildPagesDeploymentConfigs(template: CatalogTemplate, resolvedBindings
   }
 
   const hasResourceBindings = resolvedBindings.some(rb => ['kv', 'd1', 'r2'].includes(rb.type));
-  if (hasResourceBindings) {
-    prodConfigs.kv_namespaces = [];
-    prodConfigs.d1_databases = [];
-    prodConfigs.r2_buckets = [];
-    previewConfigs.kv_namespaces = [];
-    previewConfigs.d1_databases = [];
-    previewConfigs.r2_buckets = [];
-  }
+  // CF Pages PATCH 部署配置的字段格式（来自 wrangler 源码确认）：
+  //   kv_namespaces: Record<string, { namespace_id: string }>
+  //   d1_databases:   Record<string, { id: string }>
+  //   r2_buckets:     Record<string, { name: string }>
+  // 全部是 Map/对象形式，不是数组；字段名也是 id / name（不是 database_id / bucket_name）
 
   for (const rb of resolvedBindings) {
     const b = rb.cfBinding as any;
     switch (rb.type) {
       case 'kv': {
-        const entry = { binding: b.name, namespace_id: b.namespace_id };
-        prodConfigs.kv_namespaces.push(entry);
-        previewConfigs.kv_namespaces.push(entry);
+        if (!prodConfigs.kv_namespaces) { prodConfigs.kv_namespaces = {}; previewConfigs.kv_namespaces = {}; }
+        const entry = { namespace_id: b.namespace_id };
+        prodConfigs.kv_namespaces[b.name] = entry;
+        previewConfigs.kv_namespaces[b.name] = entry;
         break;
       }
       case 'd1': {
-        const entry = { binding: b.name, database_id: b.id };
-        prodConfigs.d1_databases.push(entry);
-        previewConfigs.d1_databases.push(entry);
+        if (!prodConfigs.d1_databases) { prodConfigs.d1_databases = {}; previewConfigs.d1_databases = {}; }
+        const entry = { id: b.id };
+        prodConfigs.d1_databases[b.name] = entry;
+        previewConfigs.d1_databases[b.name] = entry;
         break;
       }
       case 'r2': {
-        const entry = { binding: b.name, bucket_name: b.bucket_name };
-        prodConfigs.r2_buckets.push(entry);
-        previewConfigs.r2_buckets.push(entry);
+        if (!prodConfigs.r2_buckets) { prodConfigs.r2_buckets = {}; previewConfigs.r2_buckets = {}; }
+        const entry = { name: b.bucket_name };
+        prodConfigs.r2_buckets[b.name] = entry;
+        previewConfigs.r2_buckets[b.name] = entry;
         break;
       }
       case 'var': {
         if (!prodConfigs.env_vars) prodConfigs.env_vars = {};
         if (!previewConfigs.env_vars) previewConfigs.env_vars = {};
+        // 跳过空值（CF Pages PATCH 含空值 env_var 会整批 reject，导致所有 env_vars 都不写入）
+        if (!b.text || b.text.length === 0) break;
         prodConfigs.env_vars[b.name] = { value: b.text, type: b.type };
         previewConfigs.env_vars[b.name] = { value: b.text, type: b.type };
         break;
