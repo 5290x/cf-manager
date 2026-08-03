@@ -4,7 +4,7 @@
       <n-h2 style="margin: 0">Workers & Pages 管理</n-h2>
       <n-space>
         <n-button size="small" @click="openBatchDeploy" :disabled="!allAccounts.length">批量部署</n-button>
-        <n-button size="small" type="primary" @click="openDeploy()" :disabled="!accountStore.accounts.length">部署</n-button>
+        <n-button size="small" type="primary" @click="openDeploy()" :disabled="!allAccounts.length">部署</n-button>
       </n-space>
     </n-space>
 
@@ -294,7 +294,7 @@ function openDeploy(type?: 'worker' | 'pages', prefillName?: string, prefillAcco
   deployMainModule.value = '';
   isRedeploy.value = !!prefillName;
   deployForm.value = {
-    accountId: prefillAccountId || accountStore.accounts[0]?.id || null,
+    accountId: prefillAccountId || accountOptions.value[0]?.value || null,
     name: prefillName || '',
   };
   showDeployModal.value = true;

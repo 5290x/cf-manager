@@ -359,14 +359,15 @@ function onDeployed(result: any) {
     return;
   }
   deployVisible.value = false;
+  const accountInfo = data.accountName ? `到 ${data.accountName}` : '';
   const urls = (data.url || '').split(' | ').filter(Boolean);
   if (urls.length === 0) {
-    message.success('部署成功！请在 CF Dashboard 查看');
+    message.success(`部署成功${accountInfo}！请在 CF Dashboard 查看`);
     return;
   }
   // 部署成功：弹框询问是否打开新部署的地址
   dialog.success({
-    title: '部署成功',
+    title: `部署成功${accountInfo}`,
     content: () =>
       h('div', [
         h('p', { style: 'margin: 0 0 8px' }, '是否打开新部署的地址？'),

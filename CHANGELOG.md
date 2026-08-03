@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.4] - 2026-08-03
+
+### 🐛 Bug 修复
+
+- **修复 Worker 端批量部署缺少 `db` 参数**：`POST /store/deploy-batch` 调用 `deployTemplate` 时补充 `db: c.env.DB`，确保批量部署路径下审计日志正常写入（与单次部署路由 `POST /store/deploy` 行为一致）。
+- **修复部署 Modal 账户预选不一致**：单次部署弹窗默认预选账户从分页的 `accountStore.accounts[0]` 改为全量 `accountOptions[0]`（与下拉选项数据源一致），避免分页翻页后预选到非预期的账户导致用户误部署到错误账户。
+- **修复 Settings 任务表单账户下拉选项不全**：定时任务表单的账户下拉选项从分页的 `accountStore.accounts` 改为独立全量加载（`pageSize: 10000`），确保所有活跃账户在任务创建时可被选择。
+- **修复部署按钮可能被错误禁用**：Workers 页面的「部署」按钮启用条件从分页的 `accountStore.accounts.length` 改为全量的 `allAccounts.length`，避免账户分页翻页后按钮被误禁用。
+
+### 🔧 优化
+
+- **部署路由增加账户日志**：在 backend 和 worker 的 `/store/deploy` 与 `/store/deploy-batch` 路由中添加部署账户信息日志（账户名、DB id、CF account_id），方便定位多账户部署时可能出现的账户选择问题。
+- **部署结果包含账户信息**：`DeployResult` 接口新增 `accountName` / `accountId` 字段，前端成功弹窗展示部署目标账户名，用户可直观确认部署到了正确的账户。
+
 ## [1.4.3] - 2026-08-03
 
 ### 🚀 新特性

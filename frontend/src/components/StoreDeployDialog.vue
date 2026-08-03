@@ -490,10 +490,10 @@ async function doBatchDeploy() {
     });
 
     const results = (Array.isArray(data) ? data : []).map((r: any) => {
-      const account = accounts.value.find((a: any) => a.id === r.accountId);
+      const accountName = r.accountName || accounts.value.find((a: any) => a.id === r.accountId)?.name;
       return {
         accountId: r.accountId,
-        accountName: account?.name || `账户 #${r.accountId}`,
+        accountName: accountName || `账户 #${r.accountId}`,
         success: r.success,
         error: r.error,
       };

@@ -315,6 +315,7 @@ app.post('/deploy', async (c) => {
   const template = await findTemplate(c, templateId);
   if (!template) return c.json({ error: { code: 'NOT_FOUND', message: 'Template not found' } }, 404);
 
+  console.log(`[Store] deploy: deploying for account ${account.name} (DB id=${account.id}, CF=${account.account_id})`);
   const result = await deployTemplate({
     account, encryptionKey: c.env.ENCRYPTION_KEY, template, name,
     bindingSelections: bindingSelections || {}, secretValues: secretValues || {},
@@ -372,15 +373,18 @@ app.post('/deploy-batch', async (c) => {
       }
 
       // Deploy
+      console.log(`[Store] deploy-batch: deploying for account ${account.name} (DB id=${account.id}, CF=${account.account_id})`);
       const result = await deployTemplate({
         account, encryptionKey: c.env.ENCRYPTION_KEY, template, name: d.name,
         bindingSelections: d.bindingSelections || {}, secretValues: d.secretValues || {},
         deployType: d.deployType || undefined,
         traces: d.traces !== false, logs: d.logs !== false,
+        db: c.env.DB,
       });
 
       return {
-        accountId: d.accountId, name: d.name,
+        accountId: d.accountId, accountName: account.name, cfAccountId: account.account_id,
+        name: d.name,
         success: result.success,
         error: result.success ? undefined : (result.error || '部署失败'),
         warnings: result.warnings,

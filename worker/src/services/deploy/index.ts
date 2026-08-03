@@ -383,7 +383,7 @@ export async function deployTemplate(opts: DeployOptions): Promise<DeployResult>
     }
 
     const url = urls.join(' | ') || (template.type === 'pages' ? `https://${name}.pages.dev` : `https://${name}.workers.dev`);
-    return { success: true, warnings, bindings: resolvedBindings, url };
+    return { success: true, warnings, bindings: resolvedBindings, url, accountName: account.name, accountId: account.account_id || undefined };
 
   } catch (e: any) {
     let cur: any = e; const chain: string[] = []; const seen = new Set<any>();

@@ -232,6 +232,7 @@ import { NButton, NSpace, NTag, NSwitch, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { settingsApi } from '../api/settings';
 import { tasksApi } from '../api/storage';
+import { accountsApi } from '../api/accounts';
 import apiClient from '../api/client';
 import { useAccountStore } from '../stores/accountStore';
 import { formatCN } from '../utils/dateFormat';
@@ -248,6 +249,15 @@ const clearing = ref(false);
 const settings = ref<any>({});
 const proxyUrl = ref('');
 const proxyEnabled = ref(false);
+
+// 任务表单需要全量账户列表（不受分页影响）
+const taskAllAccounts = ref<any[]>([]);
+async function loadTaskAccounts() {
+  try {
+    const { data } = await accountsApi.getAll({ pageSize: 10000 });
+    taskAllAccounts.value = (data as any).accounts || [];
+  } catch { taskAllAccounts.value = []; }
+}
 const proxySaving = ref(false);
 const proxyTesting = ref(false);
 const proxyToggling = ref(false);
@@ -349,7 +359,7 @@ const currentTypeDesc = computed(() => taskTypeDescMap[taskForm.value.type] || '
 const taskNeedsAccount = computed(() => ['kv_cleanup', 'd1_backup', 'r2_cleanup'].includes(taskForm.value.type));
 
 const accountOptions = computed(() =>
-  accountStore.accounts.filter((a: any) => a.is_active).map((a: any) => ({ label: a.name, value: a.id }))
+  taskAllAccounts.value.filter((a: any) => a.is_active).map((a: any) => ({ label: a.name, value: a.id }))
 );
 
 function onTaskTypeChange() {
@@ -575,6 +585,7 @@ onMounted(async () => {
     fetchTasks();
   }
   accountStore.fetchAccounts();
+  loadTaskAccounts();
   loadSources();
 });
 </script>
