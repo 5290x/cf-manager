@@ -116,6 +116,23 @@ Settings → Environment variables → 添加 `ENCRYPTION_KEY` 和 `API_SECRET`�
 <details>
 <summary><strong>方式三：Docker 部署（自建服务器）</strong></summary>
 
+**使用预构建镜像（推荐）：**
+
+```bash
+docker run -d --name cf-manager -p 3000:80 \
+  -e ENCRYPTION_KEY="cfmgrbest" \
+  -e API_SECRET="cfmgrbest" \
+  -v cf-data:/app/data \
+  --restart unless-stopped \
+  ghcr.io/hefy2027/cf-manager:latest
+```
+
+> ⚠️ 请在生产环境前将 `ENCRYPTION_KEY` 和 `API_SECRET` 修改为自己的强密码。
+
+然后访问 `http://localhost:3000`。
+
+**从源码构建：**
+
 ```bash
 # 1. 克隆项目
 git clone https://github.com/hefy2027/cf-manager.git
@@ -126,13 +143,12 @@ cp .env.example .env
 
 # 3. 编辑 .env，至少设置 ENCRYPTION_KEY
 #    可选设置 API_SECRET（管理界面登录密码）、PROXY_URL（代理地址）
-#    可选设置 BASE_URL（前端访问路径，如 /admin/）
 
 # 4. 一键部署
 chmod +x deploy.sh
 ./deploy.sh
 
-# 5. 访问 http://localhost:3000（或 http://localhost:3000/admin/ 如果设置了 BASE_URL）
+# 5. 访问 http://localhost:3000
 ```
 
 </details>
@@ -145,7 +161,6 @@ chmod +x deploy.sh
 | `API_SECRET` | 否 | 管理界面访问密码，留空则无需登录 |
 | `PROXY_URL` | 否 | HTTP/SOCKS5 代理地址，如 `http://127.0.0.1:7890` 或 `socks5://127.0.0.1:1080` |
 | `APP_PORT` | 否 | 对外暴露端口，默认 `3000` |
-| `BASE_URL` | 否 | 前端访问路径，如 `/admin/`，默认 `/`（仅 Docker 部署需要，Worker 版固定为 `/admin/`） |
 | `DEMO_ACCOUNT_IDS` | 否 | 演示模式保护的账户 ID（逗号分隔），如 `1,2,3`。受保护账户不可删除和修改 |
 | `KV` (Binding) | 否 | KV Namespace 绑定（仅 Pages 部署），用于并发请求保护和缓存感知路由。可选但推荐 |
 
@@ -203,12 +218,8 @@ cf-manager/
 │   ├── src/                 # Hono API 路由 + D1 模型
 │   ├── build.js             # 一键构建脚本
 │   └── wrangler.toml        # Wrangler 配置
-├── docker/                  # Docker 构建配置
-│   ├── backend/Dockerfile
-│   └── frontend/
-│       ├── Dockerfile
-│       ├── nginx.conf.template  # Nginx 配置模板（支持 BASE_URL）
-│       └── entrypoint.sh        # 容器启动脚本
+├── docker/                  # Docker 构建配置（单容器 all-in-one）
+│   └── Dockerfile            # 多阶段构建：前端编译 + 后端编译 + 生产镜像
 ├── shared/                  # 前后端共享配置
 │   ├── model-pricing.json    # AI 模型定价（含缓存价格）
 │   ├── catalog.schema.json   # Catalog 模板 JSON Schema

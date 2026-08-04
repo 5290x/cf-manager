@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.0] - 2026-08-04
+
+### 🚀 新特性
+
+- **Docker 合并为单容器（All-in-One）**：将原来的双容器架构（Nginx 前端 + Node.js 后端）合并为单一 Node.js 容器。Express 直接通过 `express.static` + `compression` 中间件提供前端静态文件服务（gzip 压缩、30 天缓存、SPA 路由回退），不再依赖 Nginx。SSE 流式响应在 Node.js 中原生处理，无需 `proxy_buffering off` 等配置。
+- **预构建 Docker 镜像发布到 GHCR**：新增 `docker-publish.yml` GitHub Actions workflow，在 Release 打 tag 时自动构建多架构（amd64 + arm64）镜像并推送到 `ghcr.io/hefy2027/cf-manager`。用户无需 clone 仓库，直接 `docker pull` 即可使用。
+
+### 🔧 优化
+
+- **Docker 部署简化**：`docker-compose.yml` 简化为单服务配置；`deploy.sh` 适配单容器构建流程。
+- **移除 `BASE_URL` 环境变量**：Docker 版前端路径固定为 `/`，不再支持自定义子路径（Worker 版仍固定 `/admin/`）。
+- **`.dockerignore` 更新**：适配新的 `docker/Dockerfile` 路径。
+
+### 🗑️ 移除
+
+- 删除 `docker/backend/Dockerfile`、`docker/frontend/` 目录（Dockerfile、nginx.conf、nginx.conf.template、entrypoint.sh）。
+
 ## [1.4.4] - 2026-08-03
 
 ### 🐛 Bug 修复

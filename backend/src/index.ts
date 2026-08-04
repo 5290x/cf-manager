@@ -1,5 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import compression from 'compression';
+import path from 'path';
+import fs from 'fs';
 import { config } from './config';
 import { initDb } from './db';
 import { authMiddleware } from './middleware/auth';
@@ -99,6 +102,28 @@ app.get('/api/audit-log/actions', (_req, res, next) => {
     res.json(getDistinctActions());
   } catch (err) { next(err); }
 });
+
+// ---- Static frontend serving (Docker all-in-one mode) ----
+// When a `public/` directory exists next to `dist/`, serve the built frontend.
+const frontendDir = path.join(__dirname, '..', 'public');
+if (fs.existsSync(frontendDir)) {
+  app.use(compression());
+  app.use(express.static(frontendDir, {
+    maxAge: '30d',
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      // index.html should never be cached
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  }));
+  // SPA fallback: all non-API, non-v1 GET routes serve index.html
+  app.get(/^(?!\/api\/|\/v1\/).*/, (_req, res) => {
+    res.sendFile(path.join(frontendDir, 'index.html'));
+  });
+  appLogger.info(`Serving frontend from ${frontendDir}`);
+}
 
 app.use(errorHandler);
 

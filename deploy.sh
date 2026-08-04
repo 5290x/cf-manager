@@ -23,7 +23,7 @@ fi
 
 source .env
 
-# Inject current git commit SHA into the backend image (best-effort)
+# Inject current git commit SHA into the image (best-effort)
 export GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
 
 if [ -z "${ENCRYPTION_KEY:-}" ] || [ "$ENCRYPTION_KEY" = "your-random-encryption-key-here" ]; then
@@ -32,16 +32,16 @@ if [ -z "${ENCRYPTION_KEY:-}" ] || [ "$ENCRYPTION_KEY" = "your-random-encryption
 fi
 
 # ---- Deploy ----
-log "Building new images (old containers keep running) ..."
-DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose build --parallel
+log "Building all-in-one image ..."
+DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose build
 
-log "Rolling update ..."
+log "Starting container ..."
 docker compose up -d --remove-orphans
 
 log "Cleaning up old images ..."
 docker image prune -f 2>/dev/null || true
 
-log "Waiting for services to become healthy ..."
+log "Waiting for service to become healthy ..."
 for i in $(seq 1 15); do
   STATUS=$(docker compose ps --format json 2>/dev/null || true)
   if echo "$STATUS" | grep -qE '"unhealthy"|"starting"'; then
