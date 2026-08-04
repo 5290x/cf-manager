@@ -81,7 +81,7 @@ async function pollDeploymentStatus(
     await new Promise(r => setTimeout(r, delay));
     const resp = await proxyFetch(`${CF_BASE}/accounts/${account.account_id}/pages/projects/${projectName}/deployments/${deploymentId}`, {
       headers: { ...deployHeaders },
-    });
+    }, 300000, undefined, account);
     if (resp.ok) {
       const json = await resp.json() as any;
       const stage = json?.result?.latest_stage;
@@ -108,7 +108,7 @@ async function ensurePagesProject(account: Account, name: string): Promise<void>
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...deployHeaders },
       body: JSON.stringify({ name, production_branch: 'main' }),
-    });
+    }, 30000, undefined, account);
   } catch (e: any) {
     if (!e.body?.includes('already exists') && e.status !== 409) throw e;
   }
@@ -152,7 +152,7 @@ export async function deployPages(
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...deployHeaders },
         body: JSON.stringify({ deployment_configs: opts.deploymentConfigs }),
-      });
+      }, 30000, undefined, account);
       if (!patchResp.ok) {
         const errText = await patchResp.text().catch(() => '');
         appLogger.error(`[Pages Deploy] PATCH deployment_configs FAILED: ${patchResp.status} ${errText.slice(0, 1000)}`);
@@ -168,7 +168,7 @@ export async function deployPages(
   if (!files || files.length === 0) {
     const resp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}`, {
       headers: { ...deployHeaders },
-    });
+    }, 30000, undefined, account);
     const json = await resp.json() as any;
     return json.result || json;
   }
@@ -192,7 +192,7 @@ export async function deployPages(
   const fetchJwt = async () => {
     const resp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}/upload-token`, {
       headers: { ...deployHeaders },
-    });
+    }, 30000, undefined, account);
     if (!resp.ok) throw new Error(`Failed to get upload token: ${resp.status}`);
     const json = await resp.json() as any;
     if (!json?.result?.jwt) throw new Error(`Upload token response missing jwt: ${JSON.stringify(json)}`);
@@ -225,7 +225,7 @@ export async function deployPages(
         'User-Agent': 'wrangler/4.112.0',
       },
       body: JSON.stringify({ hashes: allHashes }),
-    });
+    }, 30000, undefined, account);
     if (!resp.ok) throw new Error(`check-missing failed: ${resp.status}`);
     const json = await resp.json() as any;
     return json.result || [];
@@ -278,7 +278,7 @@ export async function deployPages(
             'User-Agent': 'wrangler/4.112.0',
           },
           body: JSON.stringify(payload),
-        });
+        }, 300000, undefined, account);
         if (!resp.ok) {
           const text = await resp.text();
           throw new Error(`Asset upload failed (batch ${Math.floor(i / BATCH_SIZE) + 1}): ${resp.status} ${text}`);
@@ -310,7 +310,7 @@ export async function deployPages(
           'User-Agent': 'wrangler/4.112.0',
         },
         body: JSON.stringify({ hashes: allHashes }),
-      });
+      }, 30000, undefined, account);
     } catch (e: any) {
       appLogger.warn(`[Pages Deploy] upsert-hashes failed (non-fatal): ${e.message}`);
     }
@@ -365,11 +365,11 @@ export async function deployPages(
   }
 
   const deployResp = await withRetry(() =>
-    fetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}/deployments`, {
+    proxyFetch(`${CF_BASE}/accounts/${accountId}/pages/projects/${name}/deployments`, {
       method: 'POST',
       headers: { ...deployHeaders },
       body: formData,
-    }),
+    }, 300000, undefined, account),
   );
   const deployJson = await deployResp.json() as any;
   if (!deployResp.ok || !deployJson.success) {

@@ -1,26 +1,19 @@
 # Changelog
 
-## [1.6.0] - 2026-08-04
+## [1.5.0] - 2026-08-04
 
 ### 🚀 新特性
 
 - **Resin 代理池集成**：原生支持 [Resin](https://github.com/Resinat/Resin) 代理池网关，实现每账户 sticky IP 绑定。设置页新增「Resin 代理池」卡片，配置 Resin 服务地址、Token 和 Platform 后，系统自动为每个 CF 账户构建 `http://Platform.{accountId}:Token@resin-host:port` 格式的代理 URL，通过 Resin 的 sticky session 机制将每个账户绑定到稳定出口 IP，避免 Cloudflare 因 IP 频繁变动触发风控。
 - **代理优先级链**：账户专属代理(已启用) > Resin(已启用) > 全局代理(已启用) > 无代理。账户专属代理可覆盖 Resin，允许个别账户不走代理池。
-
-### 🔧 优化
-
-- `proxyFetch` 新增 `account` 参数，支持自动使用 Resin/账户代理（pagesDeploy 调用已适配）。
-- `getAccountProxyUrl` 修正账户专属代理需 `proxy_enabled === 1` 才生效（与 `getHttpAgentForAccount` 行为一致）。
-
-## [1.5.0] - 2026-08-04
-
-### 🚀 新特性
-
 - **Docker 合并为单容器（All-in-One）**：将原来的双容器架构（Nginx 前端 + Node.js 后端）合并为单一 Node.js 容器。Express 直接通过 `express.static` + `compression` 中间件提供前端静态文件服务（gzip 压缩、30 天缓存、SPA 路由回退），不再依赖 Nginx。SSE 流式响应在 Node.js 中原生处理，无需 `proxy_buffering off` 等配置。
 - **预构建 Docker 镜像发布到 GHCR**：新增 `docker-publish.yml` GitHub Actions workflow，在 Release 打 tag 时自动构建多架构（amd64 + arm64）镜像并推送到 `ghcr.io/hefy2027/cf-manager`。用户无需 clone 仓库，直接 `docker pull` 即可使用。
 
 ### 🔧 优化
 
+- `proxyFetch` 新增 `account` 参数，支持自动使用 Resin/账户代理（pagesDeploy / workerDeploy / assetsUpload / preflight 调用已适配）。
+- `getAccountProxyUrl` 修正账户专属代理需 `proxy_enabled === 1` 才生效（与 `getHttpAgentForAccount` 行为一致）。
+- `proxyFetch` 重试逻辑（ECONNRESET/EPIPE）补充 `account` 分支，修复重试时丢失 Resin/账户代理的 bug。
 - **Docker 部署简化**：`docker-compose.yml` 简化为单服务配置；`deploy.sh` 适配单容器构建流程。
 - **移除 `BASE_URL` 环境变量**：Docker 版前端路径固定为 `/`，不再支持自定义子路径（Worker 版仍固定 `/admin/`）。
 - **`.dockerignore` 更新**：适配新的 `docker/Dockerfile` 路径。

@@ -49,7 +49,7 @@
 | **Browser Rendering** | 5 modes: screenshot / HTML / Markdown / PDF / link extraction · rate limit + quota management · SSRF protection |
 | **OpenAI-compatible API** | `/v1/chat/completions`, `/v1/models`, browser rendering endpoints · streaming + non-streaming · local/internal only ([API docs](docs/api-v1.md)) |
 | **App Store** | Built-in Catalog template marketplace · third-party source extension · one-click Workers/Pages deployment |
-| **System Settings** | HTTP/SOCKS5 proxy · cache purge · scheduled task extensions |
+| **System Settings** | HTTP/SOCKS5 proxy · Resin proxy pool (per-account sticky IP) · cache purge · scheduled task extensions |
 | **Security** | AES-encrypted API Token · optional login password · `/admin/` path hiding + nginx disguise · audit log |
 
 ---

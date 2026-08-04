@@ -1,4 +1,4 @@
-﻿import { Account } from '../models/account';
+import { Account } from '../models/account';
 import { getCfClient, getAuthHeaders } from './cfFactory';
 import { proxyFetch, buildCurlCommand } from './proxyService';
 import { fetchScriptSafely } from './ssrfGuard';
@@ -109,9 +109,9 @@ const CF_BASE = 'https://api.cloudflare.com/client/v4';
 async function getAccountSubdomain(account: Account): Promise<string> {
   const headers = getAuthHeaders(account);
   try {
-    const resp = await fetch(`${CF_BASE}/accounts/${account.account_id}/workers/subdomain`, {
+    const resp = await proxyFetch(`${CF_BASE}/accounts/${account.account_id}/workers/subdomain`, {
       headers: { 'Content-Type': 'application/json', ...headers },
-    });
+    }, 30000, undefined, account);
     if (!resp.ok) return '';
     const json = await resp.json() as any;
     return json?.result?.subdomain || '';
@@ -146,11 +146,11 @@ async function deployWorkerAssets(
     }
   }
 
-  const sessionResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`, {
+  const sessionResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
     body: JSON.stringify({ manifest }),
-  });
+  }, 300000, undefined, account);
   const sessionJson = await sessionResp.json() as any;
   const sessionJwt: string | undefined = sessionJson?.result?.jwt;
   const buckets: string[][] = sessionJson?.result?.buckets || [];
@@ -183,11 +183,11 @@ async function deployWorkerAssets(
       }
       upForm.append(hash, new Blob([buf.toString('base64')], { type: getContentType(hashToPath.get(hash) || '') }), hash);
     }
-    const upResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
+    const upResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${completionJwt}`, 'User-Agent': 'wrangler/4.112.0' },
       body: upForm,
-    });
+    }, 300000, undefined, account);
     if (!upResp.ok) {
       const txt = await upResp.text();
       throw new Error(`assets upload failed (bucket ${bi + 1}/${buckets.length}): ${upResp.status} ${txt} (jwtLen=${completionJwt.length})`);
@@ -331,11 +331,11 @@ export async function deployWorker(
     form.append('worker.js', new Blob([contentBytes], { type: 'application/javascript+module' }), 'worker.js');
   }
 
-  const resp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+  const resp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
     method: 'PUT',
     headers: { ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
     body: form,
-  });
+  }, 300000, undefined, account);
   const respJson = await resp.json() as any;
   if (!resp.ok || !respJson.success) {
     throw new Error(`${resp.status} ${JSON.stringify(respJson)}`);
@@ -349,11 +349,11 @@ export async function deployWorker(
     const obsBody: Record<string, unknown> = { enabled: true, head_sampling_rate: 1 };
     if (tracesEnabled) obsBody.traces = { enabled: true, persist: true, head_sampling_rate: 1 };
     if (logsEnabled) obsBody.logs = { enabled: true, persist: true, invocation_logs: true, head_sampling_rate: 1 };
-    const obsResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/script-settings`, {
+    const obsResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/script-settings`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
       body: JSON.stringify({ observability: obsBody }),
-    });
+    }, 30000, undefined, account);
     if (!obsResp.ok) {
       const obsErr = await obsResp.text();
       throw new Error(`设置 Workers 可观测性失败 (${obsResp.status}): ${obsErr}`);
@@ -388,9 +388,9 @@ export async function deployWorker(
       // 若 PUT 响应未携带 version_id，查询版本列表获取最新版本 ID
       if (!versionId) {
         try {
-          const versionsResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions`, {
+          const versionsResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions`, {
             headers: { ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
-          });
+          }, 30000, undefined, account);
           if (versionsResp.ok) {
             const versionsJson = await versionsResp.json() as any;
             const versions = versionsJson?.result || [];
@@ -405,7 +405,7 @@ export async function deployWorker(
 
       // 有 version_id 才发 deployment 请求；没有则跳过（PUT 已部署，createDeployment 非必需）
       if (versionId) {
-        const depResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
+        const depResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
           body: JSON.stringify({
@@ -413,7 +413,7 @@ export async function deployWorker(
             versions: [{ percentage: 100, version_id: versionId }],
             annotations: options.deploymentAnnotation || {},
           }),
-        });
+        }, 30000, undefined, account);
         if (!depResp.ok) {
           const depTxt = await depResp.text();
           appLogger.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
@@ -585,7 +585,7 @@ export async function getScriptContent(account: Account, scriptName: string): Pr
   const accountId = account.account_id;
   if (!accountId) throw new Error('Account ID is required');
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}`;
-  const resp = await fetch(url, { headers: { ...getAuthHeaders(account), Accept: '*/*' } });
+  const resp = await proxyFetch(url, { headers: { ...getAuthHeaders(account), Accept: '*/*' } }, 30000, undefined, account);
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`Failed to fetch script content: ${resp.status} ${text.slice(0, 200)}`);
@@ -898,7 +898,7 @@ export async function getWorkersUsageToday(account: Account): Promise<WorkersUsa
   };
   let resp;
   try {
-    resp = await proxyFetch(fetchUrl, fetchInit);
+    resp = await proxyFetch(fetchUrl, fetchInit, 300000, undefined, account);
   } catch (e) {
     appLogger.error(`[Workers Usage] Fetch failed for ${account.name}: ${e}\n[DEBUG curl] ${buildCurlCommand(fetchUrl, fetchInit)}`);
     return { requests: 0, errors: 0, subrequests: 0, cpuTimeMs: 0 };

@@ -33,7 +33,7 @@ export async function renderPage(
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, 300000, undefined, account);
 
   if (!resp.ok) {
     const errorBrowserMs = parseInt(resp.headers.get('x-browser-ms-used') || '0', 10);

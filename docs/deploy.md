@@ -459,7 +459,7 @@ wrangler pages project add-domain cf-manager your-domain.com
 |------|-------------|-------------|
 | 数据库 | SQLite (本地文件) | D1 (Cloudflare 托管) |
 | 缓存/并发控制 | Node Cache (内存) | KV + D1 兜底 |
-| 代理支持 | 支持 HTTP/SOCKS5 | 不需要（CF 内网） |
+| 代理支持 | 支持 HTTP/SOCKS5 · Resin 代理池（每账户 sticky IP） | 不需要（CF 内网） |
 | 加密算法 | Node.js crypto | Web Crypto API |
 | 定时任务 | node-cron | 不支持 |
 | 日志 | 文件日志 + winston | console.log + Logpush |
@@ -474,6 +474,7 @@ wrangler pages project add-domain cf-manager your-domain.com
 
 多账户并发请求时代理可能无法处理所有连接。解决方案：
 - 使用更稳定的代理服务
+- 启用 Resin 代理池（设置页 → Resin 代理池），为每个账户绑定稳定出口 IP
 - 在设置页面切换代理开关临时关闭代理测试
 - 改用 Worker 版本（无需代理）
 

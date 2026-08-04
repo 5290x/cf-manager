@@ -4,6 +4,7 @@ import { createWorkerUploadForm } from './uploadForm';
 import { deployWorkerAssets } from './assetsUpload';
 import type { CfWorkerInit } from './types';
 import { appLogger } from '../logger';
+import { proxyFetch } from '../proxyService';
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
 const MAX_RETRIES = 3;
@@ -133,19 +134,19 @@ export async function deployWorker(
   if (useVersionsApi) {
     // Path A: Versions API（对标 wrangler：先检查 script 是否存在）
     // Versions API 只能对已存在的 script 创建版本，首次部署必须先 PUT 创建
-    const checkResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+    const checkResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
       method: 'GET',
       headers: { ...deployHeaders },
-    });
+    }, 30000, undefined, account);
     if (checkResp.status === 404) {
       // Script 不存在，首次 PUT 创建（对标 wrangler 首次部署）
       appLogger.info(`[Worker Deploy] Script ${name} does not exist, creating via PUT`);
       const createResp = await withRetry(() =>
-        fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+        proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
           method: 'PUT',
           headers: { ...deployHeaders, 'Content-Type': formContentType },
           body: formBody,
-        }),
+        }, 300000, undefined, account),
       );
       respJson = await createResp.json() as any;
       if (!createResp.ok || !respJson.success) {
@@ -155,14 +156,14 @@ export async function deployWorker(
       // 首次创建后也尝试创建 deployment（如果有 version_id）
       if (versionId && options?.createDeployment) {
         try {
-          const depResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
+          const depResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...deployHeaders },
             body: JSON.stringify({
               strategy: 'percentage',
               versions: [{ percentage: 100, version_id: versionId }],
             }),
-          });
+          }, 30000, undefined, account);
           if (!depResp.ok) {
             const depTxt = await depResp.text();
             appLogger.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
@@ -178,11 +179,11 @@ export async function deployWorker(
     } else {
       // Script 已存在，用 Versions API 创建新版本
       const versionResp = await withRetry(() =>
-        fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions?bindings_inherit=strict`, {
+        proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions?bindings_inherit=strict`, {
           method: 'POST',
           headers: { ...deployHeaders, 'Content-Type': formContentType },
           body: formBody,
-        }),
+        }, 300000, undefined, account),
       );
       const versionJson = await versionResp.json() as any;
       if (!versionResp.ok || !versionJson.success) {
@@ -192,14 +193,14 @@ export async function deployWorker(
 
       // Create deployment with 100% traffic
       if (versionId && options?.createDeployment !== false) {
-        const depResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
+        const depResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/deployments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...deployHeaders },
           body: JSON.stringify({
             strategy: 'percentage',
             versions: [{ percentage: 100, version_id: versionId }],
           }),
-        });
+        }, 30000, undefined, account);
         if (!depResp.ok) {
           const depTxt = await depResp.text();
           appLogger.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
@@ -210,11 +211,11 @@ export async function deployWorker(
   } else {
     // Path B: Legacy PUT（PUT 已自动部署脚本，无需再创建 deployment）
     const resp = await withRetry(() =>
-      fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+      proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
         method: 'PUT',
         headers: { ...deployHeaders, 'Content-Type': formContentType },
         body: formBody,
-      }),
+      }, 300000, undefined, account),
     );
     respJson = await resp.json() as any;
     if (!resp.ok || !respJson.success) {
@@ -231,11 +232,11 @@ export async function deployWorker(
     if (tracesEnabled) obsBody.traces = { enabled: true, persist: true, head_sampling_rate: 1 };
     if (logsEnabled) obsBody.logs = { enabled: true, persist: true, invocation_logs: true, head_sampling_rate: 1 };
     try {
-      const obsResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/script-settings`, {
+      const obsResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/script-settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...deployHeaders },
         body: JSON.stringify({ observability: obsBody }),
-      });
+      }, 30000, undefined, account);
       if (!obsResp.ok) {
         const obsErr = await obsResp.text();
         appLogger.warn(`[Worker Deploy] Observability setup failed (${obsResp.status}): ${obsErr}`);
@@ -249,19 +250,19 @@ export async function deployWorker(
   let subdomain: string | undefined;
   if (options?.enableSubdomain !== false) {
     try {
-      await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/subdomain`, {
+      await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/subdomain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...deployHeaders },
         body: JSON.stringify({ enabled: true }),
-      });
+      }, 30000, undefined, account);
     } catch {
       // Soft fail
     }
     // Get account-level subdomain
     try {
-      const subResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/subdomain`, {
+      const subResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/subdomain`, {
         headers: { 'Content-Type': 'application/json', ...deployHeaders },
-      });
+      }, 30000, undefined, account);
       if (subResp.ok) {
         const subJson = await subResp.json() as any;
         subdomain = subJson?.result?.subdomain;

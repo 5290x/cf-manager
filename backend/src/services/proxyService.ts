@@ -214,12 +214,14 @@ export async function proxyFetch(input: string | URL, init?: any, timeoutMs: num
     if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
       cachedAgent = undefined;
       cachedUrl = '';
-      // 重建 agent 进行重试
+      // 重建 agent 进行重试（优先级与首次请求一致）
       let newAgent: Agent | undefined;
       if (accountProxyUrl) {
         newAgent = isSocks(accountProxyUrl)
           ? new SocksProxyAgent(accountProxyUrl, { timeout: 30000 })
           : new HttpsProxyAgent(accountProxyUrl, { timeout: 30000 });
+      } else if (account) {
+        newAgent = getHttpAgentForAccount(account);
       } else if (isProxyEnabled()) {
         newAgent = getHttpAgent();
       }

@@ -2,6 +2,7 @@ import { Account } from '../../models/account';
 import { getDeployHeaders } from './headers';
 import { computeStaticAssetHash, getContentType } from '../staticAssets';
 import { appLogger } from '../logger';
+import { proxyFetch } from '../proxyService';
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
 const MAX_RETRIES = 3;
@@ -61,11 +62,11 @@ export async function deployWorkerAssets(
 
   // Stage 1: assets-upload-session
   const sessionResp = await withRetry(() =>
-    fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`, {
+    proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...deployHeaders },
       body: JSON.stringify({ manifest }),
-    }),
+    }, 300000, undefined, account),
   );
   const sessionJson = await sessionResp.json() as any;
   const sessionJwt: string | undefined = sessionJson?.result?.jwt;
@@ -104,11 +105,11 @@ export async function deployWorkerAssets(
       upForm.append(hash, new Blob([buf.toString('base64')], { type: ct }), hash);
     }
     const upResp = await withRetry(() =>
-      fetch(`${CF_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
+      proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/assets/upload?base64=true`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${completionJwt}`, 'User-Agent': 'wrangler/4.112.0' },
         body: upForm,
-      }),
+      }, 300000, undefined, account),
     );
     if (!upResp.ok) {
       const txt = await upResp.text();
