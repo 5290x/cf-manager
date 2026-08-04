@@ -31,52 +31,62 @@
     </n-card>
 
     <n-card v-if="!isWorkerPlatform" title="代理设置" size="small" style="margin-bottom: 16px">
-      <n-space vertical>
-        <n-space align="center">
-          <n-switch :value="proxyEnabled" @update:value="toggleProxy" :loading="proxyToggling" />
-          <n-text :depth="proxyEnabled ? 1 : 3">{{ proxyEnabled ? '代理已启用' : '代理已关闭' }}</n-text>
-        </n-space>
-        <n-input-group>
-          <n-input v-model:value="proxyUrl" placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" clearable style="flex: 1" />
-          <n-button type="info" :loading="proxyTesting" :disabled="!proxyUrl" @click="testProxy">测试</n-button>
-          <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
-        </n-input-group>
-        <n-text depth="3" style="font-size: 12px">
-          支持 HTTP/HTTPS 和 SOCKS5 代理协议。此开关仅控制全局默认代理。
-          可在「账号管理」中为每个账户单独配置专属代理地址和独立开关，账户开关不受此全局开关影响。
-        </n-text>
-      </n-space>
-    </n-card>
+      <n-space vertical size="large">
+        <!-- 优先级说明 -->
+        <n-alert type="info" :bordered="false" style="font-size: 12px">
+          代理优先级：账户专属代理（已启用）&nbsp;&gt;&nbsp;Resin 代理池（已启用）&nbsp;&gt;&nbsp;全局代理（已启用）&nbsp;&gt;&nbsp;无代理。
+          可在「账号管理」中为每个账户单独配置专属代理。
+        </n-alert>
 
-    <n-card v-if="!isWorkerPlatform" title="Resin 代理池" size="small" style="margin-bottom: 16px">
-      <n-space vertical>
-        <n-space align="center">
-          <n-switch :value="resinEnabled" @update:value="toggleResin" :loading="resinToggling" />
-          <n-text :depth="resinEnabled ? 1 : 3">{{ resinEnabled ? 'Resin 已启用' : 'Resin 已关闭' }}</n-text>
-          <n-button v-if="resinDashboardUrl" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
-            Resin 面板 ↗
-          </n-button>
-        </n-space>
-        <n-form label-placement="left" label-width="80" size="small">
-          <n-form-item label="服务地址">
-            <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260" clearable />
-          </n-form-item>
-          <n-form-item label="Token">
-            <n-input v-model:value="resinTokenInput" placeholder="RESIN_PROXY_TOKEN" clearable show-password-on="click" />
-          </n-form-item>
-          <n-form-item label="Platform">
-            <n-input v-model:value="resinPlatformInput" placeholder="Default" clearable />
-          </n-form-item>
-        </n-form>
-        <n-space>
-          <n-button type="info" :loading="resinTesting" :disabled="!resinUrlInput || !resinTokenInput" @click="testResin">测试连接</n-button>
-          <n-button type="primary" :loading="resinSaving" @click="saveResin">保存</n-button>
-        </n-space>
-        <n-text depth="3" style="font-size: 12px">
-          Resin 代理池启用后，每个账户自动通过 Resin 出口，使用账户 ID 绑定稳定 IP（sticky session）。
-          优先级：账户专属代理 > Resin > 全局代理。详见
-          <n-a href="https://github.com/Resinat/Resin" target="_blank">Resin 项目</n-a>。
-        </n-text>
+        <!-- 全局代理 -->
+        <div>
+          <n-space align="center" style="margin-bottom: 12px">
+            <n-switch :value="proxyEnabled" @update:value="toggleProxy" :loading="proxyToggling" size="small" />
+            <n-text strong :depth="proxyEnabled ? 1 : 3">全局代理</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ proxyEnabled ? '已启用' : '已关闭' }}</n-text>
+          </n-space>
+          <n-input-group>
+            <n-input v-model:value="proxyUrl" placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" clearable style="flex: 1" />
+            <n-button type="info" :loading="proxyTesting" :disabled="!proxyUrl" @click="testProxy">测试</n-button>
+            <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
+          </n-input-group>
+          <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            支持 HTTP/HTTPS 和 SOCKS5 代理协议，作为所有账户的默认代理。
+          </n-text>
+        </div>
+
+        <n-divider style="margin: 4px 0" />
+
+        <!-- Resin 代理池 -->
+        <div>
+          <n-space align="center" style="margin-bottom: 12px">
+            <n-switch :value="resinEnabled" @update:value="toggleResin" :loading="resinToggling" size="small" />
+            <n-text strong :depth="resinEnabled ? 1 : 3">Resin 代理池</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ resinEnabled ? '已启用' : '已关闭' }}</n-text>
+            <n-button v-if="resinDashboardUrl" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
+              面板 ↗
+            </n-button>
+          </n-space>
+          <n-form label-placement="left" label-width="80" size="small">
+            <n-form-item label="服务地址">
+              <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260" clearable />
+            </n-form-item>
+            <n-form-item label="Token">
+              <n-input v-model:value="resinTokenInput" placeholder="RESIN_PROXY_TOKEN" clearable show-password-on="click" />
+            </n-form-item>
+            <n-form-item label="Platform">
+              <n-input v-model:value="resinPlatformInput" placeholder="Default" clearable />
+            </n-form-item>
+          </n-form>
+          <n-space>
+            <n-button type="info" :loading="resinTesting" :disabled="!resinUrlInput || !resinTokenInput" @click="testResin">测试连接</n-button>
+            <n-button type="primary" :loading="resinSaving" @click="saveResin">保存</n-button>
+          </n-space>
+          <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            启用后每个账户自动通过 Resin 出口，使用账户 ID 绑定稳定 IP（sticky session）。详见
+            <n-a href="https://github.com/Resinat/Resin" target="_blank">Resin 项目</n-a>。
+          </n-text>
+        </div>
       </n-space>
     </n-card>
 
