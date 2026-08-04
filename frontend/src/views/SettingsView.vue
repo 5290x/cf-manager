@@ -63,7 +63,7 @@
             <n-switch :value="resinEnabled" @update:value="toggleResin" :loading="resinToggling" size="small" />
             <n-text strong :depth="resinEnabled ? 1 : 3">Resin 代理池</n-text>
             <n-text depth="3" style="font-size: 12px">{{ resinEnabled ? '已启用' : '已关闭' }}</n-text>
-            <n-button v-if="resinDashboardUrl" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
+            <n-button v-if="resinDashboardUrl && (resinDashboardUrl.startsWith('http://') || resinDashboardUrl.startsWith('https://'))" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
               面板 ↗
             </n-button>
           </n-space>

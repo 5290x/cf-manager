@@ -303,7 +303,9 @@ export async function testResinConnection(accountId?: number): Promise<{ latency
     throw new Error('Resin 配置不完整（需要服务地址和 Token）');
   }
 
-  const agent = new HttpsProxyAgent(resinUrl, { timeout: 10000 });
+  const agent = isSocks(resinUrl)
+    ? new SocksProxyAgent(resinUrl, { timeout: 10000 })
+    : new HttpsProxyAgent(resinUrl, { timeout: 10000 });
   const start = Date.now();
   const resp = await nodeFetch('https://api.cloudflare.com/client/v4/ips', {
     agent,
