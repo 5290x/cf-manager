@@ -10,6 +10,10 @@ on:
 
 permissions:
   contents: write
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   release:
@@ -110,14 +114,67 @@ jobs:
           generate_release_notes: true
           files: worker/cf-manager.zip
 
+      # ===== Docker 镜像构建与推送 =====
+      - name: Prepare Docker metadata
+        id: docker_meta
+        run: |
+          IMAGE_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=${IMAGE_LOWER}" >> $GITHUB_OUTPUT
+          echo "Docker image: ${IMAGE_LOWER}:${{ steps.version.outputs.tag }}"
+
+      - name: Set up QEMU for multi-arch builds
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          tags: |
+            ${{ steps.docker_meta.outputs.image }}:${{ steps.version.outputs.tag }}
+            ${{ steps.docker_meta.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Publish summary
         if: always()
         run: |
+          IMAGE_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          TAG="${{ steps.version.outputs.tag }}"
           echo "## 发布完成 ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| 项目 | 内容 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 版本号 | ${{ steps.version.outputs.tag }} (${{ steps.version.outputs.tag_exists == 'true' && '覆盖已有 Release' || '新建 Release' }}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Release 地址 | https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 版本号 | ${TAG} (${{ steps.version.outputs.tag_exists == 'true' && '覆盖已有 Release' || '新建 Release' }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Release 地址 | https://github.com/${{ github.repository }}/releases/tag/${TAG} |" >> $GITHUB_STEP_SUMMARY
           echo "| 附件 | cf-manager.zip (Worker 预编译包) |" >> $GITHUB_STEP_SUMMARY
           echo "| CHANGELOG | ${{ steps.changelog.outputs.has_changelog == 'true' && '✅ 已包含' || '⚠️ 自动生成' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker 镜像 | \`${IMAGE_LOWER}:${TAG}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Latest | \`${IMAGE_LOWER}:latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 架构 | linux/amd64, linux/arm64 |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 快速使用" >> $GITHUB_STEP_SUMMARY
+          echo '> ⚠️ 请在生产环境前将 ENCRYPTION_KEY 和 API_SECRET 修改为自己的强密码' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d --name cf-manager -p 3000:3000 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -e ENCRYPTION_KEY=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -e API_SECRET=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -v cf-data:/app/data \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --restart unless-stopped \\" >> $GITHUB_STEP_SUMMARY
+          echo "  ${IMAGE_LOWER}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

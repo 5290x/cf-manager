@@ -1,9 +1,12 @@
 name: Publish Docker Image
 
 on:
-  push:
-    tags:
-      - '*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '版本号 / tag (例如 1.5.0)，将 checkout 到该 tag 构建'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -17,6 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Checkout tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            git checkout "${TAG}"
+            echo "已切换到 tag: ${TAG}"
+          else
+            echo "::error::Tag ${TAG} 不存在，请先创建该 tag"
+            exit 1
+          fi
 
       - name: Set up QEMU for multi-arch builds
         uses: docker/setup-qemu-action@v3
@@ -34,7 +50,7 @@ jobs:
       - name: Extract metadata
         id: meta
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
+          TAG="${{ github.event.inputs.tag }}"
           IMAGE_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "image=${IMAGE_LOWER}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
@@ -69,7 +85,7 @@ jobs:
           echo '> ⚠️ 请在生产环境前将 ENCRYPTION_KEY 和 API_SECRET 修改为自己的强密码' >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d --name cf-manager -p 3000:80 \\" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d --name cf-manager -p 3000:3000 \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e ENCRYPTION_KEY=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e API_SECRET=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
           echo "  -v cf-data:/app/data \\" >> $GITHUB_STEP_SUMMARY
