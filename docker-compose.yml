@@ -9,7 +9,7 @@ services:
         - GIT_COMMIT=${GIT_COMMIT:-}
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3000}:80"
+      - "${APP_PORT:-3000}:3000"
     environment:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - API_SECRET=${API_SECRET:-}
