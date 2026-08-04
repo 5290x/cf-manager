@@ -103,10 +103,10 @@ Action 会自动完成：
 无需克隆仓库，直接拉取镜像运行：
 
 ```bash
-docker run -d --name cf-manager -p 3000:80 \
+docker run -d --name cf-manager -p 3000:3000 \
   -e ENCRYPTION_KEY="cfmgrbest" \
   -e API_SECRET="cfmgrbest" \
-  -v cf-data:/app/data \
+  -v ./data:/app/data \
   --restart unless-stopped \
   ghcr.io/hefy2027/cf-manager:latest
 ```
@@ -172,9 +172,9 @@ git pull
 
 ### 数据持久化
 
-- 数据库文件存储在 Docker volume `cf-data` 中（`/app/data/cf-manager.db`）
+- 数据库文件存储在本地 `./data/` 目录中（`/app/data/cf-manager.db`）
 - 日志文件存储在 `/app/data/logs/`
-- Docker Compose 已配置 volume 映射，数据不会随容器销毁丢失
+- Docker Compose 已配置目录映射（`./data:/app/data`），数据不会随容器销毁丢失
 
 ### 本地开发
 

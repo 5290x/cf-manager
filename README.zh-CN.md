@@ -119,10 +119,10 @@ Settings → Environment variables → 添加 `ENCRYPTION_KEY` 和 `API_SECRET`�
 **使用预构建镜像（推荐）：**
 
 ```bash
-docker run -d --name cf-manager -p 3000:80 \
+docker run -d --name cf-manager -p 3000:3000 \
   -e ENCRYPTION_KEY="cfmgrbest" \
   -e API_SECRET="cfmgrbest" \
-  -v cf-data:/app/data \
+  -v ./data:/app/data \
   --restart unless-stopped \
   ghcr.io/hefy2027/cf-manager:latest
 ```
@@ -276,6 +276,10 @@ cf-manager/
 
 - [cf-store](https://github.com/hefy2027/cf-store)：CF Manager「应用商店」的 Catalog 模板仓库（应用/Worker 部署模板源），如需贡献或自托管模板可参考此仓库。
 
-## 社区
+## 社区与公众号
 
 本开源项目已链接并认可 [LINUX DO 社区](https://linux.do)。
+
+欢迎关注公众号「**AI非与**」，获取项目更新与技术分享：
+
+<img src="https://i.ibb.co/mFq91Rzq/ai-feyu-wechat-qr.jpg" alt="AI非与公众号" width="200" />

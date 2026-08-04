@@ -119,10 +119,10 @@ Settings → Environment variables → add `ENCRYPTION_KEY` and `API_SECRET` (op
 **Quick start with prebuilt image (recommended):**
 
 ```bash
-docker run -d --name cf-manager -p 3000:80 \
+docker run -d --name cf-manager -p 3000:3000 \
   -e ENCRYPTION_KEY="cfmgrbest" \
   -e API_SECRET="cfmgrbest" \
-  -v cf-data:/app/data \
+  -v ./data:/app/data \
   --restart unless-stopped \
   ghcr.io/hefy2027/cf-manager:latest
 ```
@@ -276,10 +276,10 @@ cf-manager/
 
 - [cf-store](https://github.com/hefy2027/cf-store): The Catalog template repository for CF Manager's "App Store" (app/Worker deployment template source). Refer to it if you want to contribute or self-host templates.
 
-## 社区与公众号
+## Community
 
-本开源项目已链接并认可 [LINUX DO 社区](https://linux.do)。
+This open-source project is linked to and recognized by the [LINUX DO community](https://linux.do).
 
-欢迎关注公众号「**AI非与**」，获取项目更新与技术分享：
+Follow the WeChat Official Account **「AI非与」** for project updates and technical sharing:
 
-<img src="https://i.ibb.co/mFq91Rzq/ai-feyu-wechat-qr.jpg" alt="AI非与公众号" width="200" />
+<img src="https://i.ibb.co/mFq91Rzq/ai-feyu-wechat-qr.jpg" alt="AI非与 WeChat Official Account" width="200" />
