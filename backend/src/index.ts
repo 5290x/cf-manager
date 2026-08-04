@@ -49,6 +49,25 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ---- Static frontend serving (Docker all-in-one mode) ----
+// Must be BEFORE authMiddleware so the login page loads without credentials.
+// API routes (/api/*, /v1/*) are registered after authMiddleware and remain protected.
+const frontendDir = path.join(__dirname, '..', 'public');
+if (fs.existsSync(frontendDir)) {
+  app.use(compression());
+  app.use(express.static(frontendDir, {
+    maxAge: '30d',
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      // index.html should never be cached
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  }));
+  appLogger.info(`Serving frontend from ${frontendDir}`);
+}
+
 app.use(authMiddleware);
 
 // External APIs — no responseWrapper, keep original format
@@ -103,26 +122,13 @@ app.get('/api/audit-log/actions', (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ---- Static frontend serving (Docker all-in-one mode) ----
-// When a `public/` directory exists next to `dist/`, serve the built frontend.
-const frontendDir = path.join(__dirname, '..', 'public');
-if (fs.existsSync(frontendDir)) {
-  app.use(compression());
-  app.use(express.static(frontendDir, {
-    maxAge: '30d',
-    immutable: true,
-    setHeaders: (res, filePath) => {
-      // index.html should never be cached
-      if (filePath.endsWith('index.html')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      }
-    },
-  }));
-  // SPA fallback: all non-API, non-v1 GET routes serve index.html
+// SPA fallback: all non-API, non-v1 GET routes serve index.html
+// Must be AFTER authMiddleware so protected routes aren't bypassed —
+// the regex excludes /api/ and /v1/ paths, so only frontend routes hit this.
+if (fs.existsSync(path.join(__dirname, '..', 'public'))) {
   app.get(/^(?!\/api\/|\/v1\/).*/, (_req, res) => {
-    res.sendFile(path.join(frontendDir, 'index.html'));
+    res.sendFile(path.join(path.join(__dirname, '..', 'public'), 'index.html'));
   });
-  appLogger.info(`Serving frontend from ${frontendDir}`);
 }
 
 app.use(errorHandler);
