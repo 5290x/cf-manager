@@ -51,7 +51,7 @@
             <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
           </n-input-group>
           <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            支持 HTTP/HTTPS 和 SOCKS5 代理协议，作为所有账户的默认代理。
+            支持 HTTP/HTTPS 和 SOCKS5/SOCKS5h 代理协议，作为所有账户的默认代理。
           </n-text>
         </div>
 
@@ -69,7 +69,7 @@
           </n-space>
           <n-form label-placement="left" label-width="80" size="small">
             <n-form-item label="服务地址">
-              <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260" clearable />
+              <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260 或 socks5h://127.0.0.1:2260" clearable />
             </n-form-item>
             <n-form-item label="Token">
               <n-input v-model:value="resinTokenInput" placeholder="RESIN_PROXY_TOKEN" clearable show-password-on="click" />
