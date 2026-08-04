@@ -69,7 +69,7 @@ jobs:
           echo '> ⚠️ 请在生产环境前将 ENCRYPTION_KEY 和 API_SECRET 修改为自己的强密码' >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d --name cf-manager -p 3000:80 \\" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d --name cf-manager -p 3000:3000 \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e ENCRYPTION_KEY=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e API_SECRET=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
           echo "  -v cf-data:/app/data \\" >> $GITHUB_STEP_SUMMARY
