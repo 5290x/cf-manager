@@ -27,6 +27,60 @@ function isSocks(url: string): boolean {
   return /^socks[45h]?:\/\//i.test(url);
 }
 
+// ==================== Resin 代理池配置 ====================
+
+export interface ResinConfig {
+  enabled: boolean;
+  url: string;       // e.g. http://127.0.0.1:2260
+  token: string;     // RESIN_PROXY_TOKEN
+  platform: string;  // Platform name, default 'Default'
+}
+
+export function getResinConfig(): ResinConfig {
+  return {
+    enabled: getSetting('resin_enabled') === '1',
+    url: getSetting('resin_url') || '',
+    token: getSetting('resin_token') || '',
+    platform: getSetting('resin_platform') || 'Default',
+  };
+}
+
+export function setResinConfig(cfg: Partial<ResinConfig>): void {
+  if (cfg.enabled !== undefined) setSetting('resin_enabled', cfg.enabled ? '1' : '0');
+  if (cfg.url !== undefined) setSetting('resin_url', cfg.url);
+  if (cfg.token !== undefined) setSetting('resin_token', cfg.token);
+  if (cfg.platform !== undefined) setSetting('resin_platform', cfg.platform);
+  // Clear all caches when Resin config changes
+  cachedAgent = undefined;
+  cachedUrl = '';
+  accountAgentCache.clear();
+}
+
+export function isResinEnabled(): boolean {
+  return getSetting('resin_enabled') === '1';
+}
+
+/**
+ * 为指定账户构建 Resin sticky 代理 URL
+ * 格式: http://Platform.AccountId:Token@host:port
+ */
+export function buildResinProxyUrl(accountId: number): string {
+  const { url, token, platform } = getResinConfig();
+  if (!url || !token) return '';
+
+  try {
+    const parsed = new URL(url);
+    // Resin 认证格式: Platform.Account:Token
+    parsed.username = `${platform}.${accountId}`;
+    parsed.password = token;
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+// ==================== 经典代理配置 ====================
+
 export function isProxyEnabled(): boolean {
   const val = getSetting('proxy_enabled');
   if (val !== undefined) return val === '1';
@@ -55,15 +109,20 @@ export function setProxyUrl(url: string): void {
 
 /**
  * 获取指定账户的代理 URL
- * 优先级：账户专属代理 > 全局代理（设置页） > 环境变量 PROXY_URL
+ * 优先级：账户专属代理(已启用) > Resin(已启用) > 全局代理(设置页) > 环境变量 PROXY_URL
  * 返回空字符串表示不使用代理
  */
 export function getAccountProxyUrl(account?: Account | null): string {
-  // 1. 优先使用账户专属代理
-  if (account?.proxy_url && account.proxy_url.trim()) {
+  // 1. 优先使用账户专属代理（已启用）
+  if (account?.proxy_url && account.proxy_url.trim() && account.proxy_enabled === 1) {
     return account.proxy_url.trim();
   }
-  // 2. 回退到全局代理
+  // 2. Resin 代理池（已启用）
+  if (isResinEnabled() && account?.id) {
+    const resinUrl = buildResinProxyUrl(account.id);
+    if (resinUrl) return resinUrl;
+  }
+  // 3. 回退到全局代理
   return getProxyUrl();
 }
 
@@ -81,10 +140,8 @@ export function getHttpAgent(): Agent | undefined {
 }
 
 /**
- * 获取指定账户的 HTTP Agent（支持账户专属代理）
- * 账户开关和全局开关互不干扰：
- * - 账户开关开启 → 使用账户专属代理（不受全局开关影响）
- * - 账户开关关闭 / 无账户代理 → 回退到全局代理（受全局开关控制）
+ * 获取指定账户的 HTTP Agent（支持账户专属代理 + Resin 代理池）
+ * 优先级：账户专属代理(已启用) > Resin(已启用) > 全局代理(已启用)
  */
 export function getHttpAgentForAccount(account?: Account | null): Agent | undefined {
   // 1. 账户专属代理：只要账户有 URL 且开关开启，就用它（不受全局开关限制）
@@ -101,19 +158,37 @@ export function getHttpAgentForAccount(account?: Account | null): Agent | undefi
     return agent;
   }
 
-  // 2. 账户没有专属代理或已关闭 → 回退到全局代理（受全局开关控制）
+  // 2. Resin 代理池（已启用）— 自动为每个账户构建 sticky 代理 URL
+  if (isResinEnabled() && account?.id) {
+    const resinUrl = buildResinProxyUrl(account.id);
+    if (resinUrl) {
+      const accountId = account.id;
+      const cached = accountAgentCache.get(accountId);
+      if (cached && cached.url === resinUrl) return cached.agent;
+
+      const agent = isSocks(resinUrl)
+        ? new SocksProxyAgent(resinUrl, { timeout: 30000 })
+        : new HttpsProxyAgent(resinUrl, { timeout: 30000 });
+      accountAgentCache.set(accountId, { agent, url: resinUrl });
+      return agent;
+    }
+  }
+
+  // 3. 账户没有专属代理 / Resin 未启用 → 回退到全局代理（受全局开关控制）
   if (!isProxyEnabled()) return undefined;
   return getHttpAgent();
 }
 
-export async function proxyFetch(input: string | URL, init?: any, timeoutMs: number = 300000, accountProxyUrl?: string): Promise<FetchResponse> {
+export async function proxyFetch(input: string | URL, init?: any, timeoutMs: number = 300000, accountProxyUrl?: string, account?: Account | null): Promise<FetchResponse> {
   let agent: Agent | undefined;
 
-  // 账户专属代理不受全局开关限制；全局代理受全局开关控制
+  // 优先级：accountProxyUrl (显式传入) > account 对象 (含 Resin/账户代理) > 全局代理
   if (accountProxyUrl) {
     agent = isSocks(accountProxyUrl)
       ? new SocksProxyAgent(accountProxyUrl, { timeout: 30000 })
       : new HttpsProxyAgent(accountProxyUrl, { timeout: 30000 });
+  } else if (account) {
+    agent = getHttpAgentForAccount(account);
   } else if (isProxyEnabled()) {
     agent = getHttpAgent();
   }
@@ -139,12 +214,14 @@ export async function proxyFetch(input: string | URL, init?: any, timeoutMs: num
     if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
       cachedAgent = undefined;
       cachedUrl = '';
-      // 重建 agent 进行重试
+      // 重建 agent 进行重试（优先级与首次请求一致）
       let newAgent: Agent | undefined;
       if (accountProxyUrl) {
         newAgent = isSocks(accountProxyUrl)
           ? new SocksProxyAgent(accountProxyUrl, { timeout: 30000 })
           : new HttpsProxyAgent(accountProxyUrl, { timeout: 30000 });
+      } else if (account) {
+        newAgent = getHttpAgentForAccount(account);
       } else if (isProxyEnabled()) {
         newAgent = getHttpAgent();
       }
@@ -202,6 +279,33 @@ export async function testProxyConnection(proxyUrl: string): Promise<{ latency_m
     ? new SocksProxyAgent(proxyUrl)
     : new HttpsProxyAgent(proxyUrl);
 
+  const start = Date.now();
+  const resp = await nodeFetch('https://api.cloudflare.com/client/v4/ips', {
+    agent,
+    timeout: 10000,
+  });
+  const latency = Date.now() - start;
+
+  if (!resp.ok) {
+    throw new Error(`Upstream returned HTTP ${resp.status}`);
+  }
+  return { latency_ms: latency, status: resp.status };
+}
+
+/**
+ * 测试 Resin 代理池连接
+ * 使用 Resin 代理访问 Cloudflare API，验证连通性和延迟
+ */
+export async function testResinConnection(accountId?: number): Promise<{ latency_ms: number; status: number; exit_ip?: string }> {
+  const testAccountId = accountId || 0;
+  const resinUrl = buildResinProxyUrl(testAccountId);
+  if (!resinUrl) {
+    throw new Error('Resin 配置不完整（需要服务地址和 Token）');
+  }
+
+  const agent = isSocks(resinUrl)
+    ? new SocksProxyAgent(resinUrl, { timeout: 10000 })
+    : new HttpsProxyAgent(resinUrl, { timeout: 10000 });
   const start = Date.now();
   const resp = await nodeFetch('https://api.cloudflare.com/client/v4/ips', {
     agent,

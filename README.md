@@ -49,7 +49,7 @@
 | **Browser Rendering** | 5 modes: screenshot / HTML / Markdown / PDF / link extraction · rate limit + quota management · SSRF protection |
 | **OpenAI-compatible API** | `/v1/chat/completions`, `/v1/models`, browser rendering endpoints · streaming + non-streaming · local/internal only ([API docs](docs/api-v1.md)) |
 | **App Store** | Built-in Catalog template marketplace · third-party source extension · one-click Workers/Pages deployment |
-| **System Settings** | HTTP/SOCKS5 proxy · cache purge · scheduled task extensions |
+| **System Settings** | HTTP/SOCKS5 proxy · Resin proxy pool (per-account sticky IP) · cache purge · scheduled task extensions |
 | **Security** | AES-encrypted API Token · optional login password · `/admin/` path hiding + nginx disguise · audit log |
 
 ---
@@ -116,6 +116,23 @@ Settings → Environment variables → add `ENCRYPTION_KEY` and `API_SECRET` (op
 <details>
 <summary><strong>Option 3: Docker Deploy (self-hosted server)</strong></summary>
 
+**Quick start with prebuilt image (recommended):**
+
+```bash
+docker run -d --name cf-manager -p 3000:80 \
+  -e ENCRYPTION_KEY="cfmgrbest" \
+  -e API_SECRET="cfmgrbest" \
+  -v cf-data:/app/data \
+  --restart unless-stopped \
+  ghcr.io/hefy2027/cf-manager:latest
+```
+
+> ⚠️ Please change `ENCRYPTION_KEY` and `API_SECRET` to your own strong passwords before production use.
+
+Then visit `http://localhost:3000`.
+
+**Build from source:**
+
 ```bash
 # 1. Clone the project
 git clone https://github.com/hefy2027/cf-manager.git
@@ -126,13 +143,12 @@ cp .env.example .env
 
 # 3. Edit .env — at minimum set ENCRYPTION_KEY
 #    Optionally set API_SECRET (UI login password), PROXY_URL (proxy address)
-#    Optionally set BASE_URL (frontend path, e.g. /admin/)
 
 # 4. One-click deploy
 chmod +x deploy.sh
 ./deploy.sh
 
-# 5. Visit http://localhost:3000 (or http://localhost:3000/admin/ if BASE_URL is set)
+# 5. Visit http://localhost:3000
 ```
 
 </details>
@@ -145,7 +161,6 @@ chmod +x deploy.sh
 | `API_SECRET` | No | Management UI access password; empty means no login required |
 | `PROXY_URL` | No | HTTP/SOCKS5 proxy address, e.g. `http://127.0.0.1:7890` or `socks5://127.0.0.1:1080` |
 | `APP_PORT` | No | Exposed port, default `3000` |
-| `BASE_URL` | No | Frontend base path, e.g. `/admin/`, default `/` (Docker only; Worker is fixed to `/admin/`) |
 | `DEMO_ACCOUNT_IDS` | No | Protected demo account IDs (comma-separated), e.g. `1,2,3`. Protected accounts cannot be deleted or modified |
 | `KV` (Binding) | No | KV Namespace binding (Pages deploy only), used for concurrent-request protection and cache-aware routing. Optional but recommended |
 
@@ -203,12 +218,8 @@ cf-manager/
 │   ├── src/                 # Hono API routes + D1 models
 │   ├── build.js             # One-click build script
 │   └── wrangler.toml        # Wrangler config
-├── docker/                  # Docker build config
-│   ├── backend/Dockerfile
-│   └── frontend/
-│       ├── Dockerfile
-│       ├── nginx.conf.template  # Nginx config template (supports BASE_URL)
-│       └── entrypoint.sh        # Container entrypoint script
+├── docker/                  # Docker build config (all-in-one single container)
+│   └── Dockerfile            # Multi-stage: frontend build + backend build + production image
 ├── shared/                  # Shared frontend/backend config
 │   ├── model-pricing.json    # AI model pricing (incl. cache pricing)
 │   ├── catalog.schema.json   # Catalog template JSON Schema

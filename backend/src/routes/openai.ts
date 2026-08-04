@@ -181,7 +181,7 @@ router.post('/chat/completions', async (req: Request, res: Response, next: NextF
           method: 'POST',
           headers,
           body: JSON.stringify(req.body),
-        }, timeoutMs);
+        }, timeoutMs, undefined, account);
 
         if (!cfResp.ok) {
           const errorText = await cfResp.text();
@@ -237,7 +237,7 @@ router.post('/chat/completions', async (req: Request, res: Response, next: NextF
           method: 'POST',
           headers,
           body: JSON.stringify(req.body),
-        }, timeoutMs);
+        }, timeoutMs, undefined, account);
       } catch (netErr: any) {
         // Network error — retryable, increment retry count
         const errMsg = `Network error: ${netErr.message || netErr}`;

@@ -129,4 +129,6 @@ export interface DeployResult {
   bindings: ResolvedBinding[];
   rolledBack?: boolean;
   rollbackErrors?: string[];
+  accountName?: string;
+  accountId?: string;
 }

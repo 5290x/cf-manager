@@ -314,6 +314,7 @@ router.post('/deploy', async (req: Request, res: Response, next: NextFunction) =
     const template = await findTemplate(templateId);
     if (!template) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Template not found' } }); return; }
 
+    appLogger.info(`[Store] deploy: deploying for account ${account.name} (DB id=${account.id}, CF=${account.account_id})`);
     const result = await deployTemplate({
       account, template, name,
       bindingSelections: bindingSelections || {},
@@ -371,6 +372,7 @@ router.post('/deploy-batch', async (req: Request, res: Response, next: NextFunct
       }
 
       // Deploy
+      appLogger.info(`[Store] deploy-batch: deploying for account ${account.name} (DB id=${account.id}, CF=${account.account_id})`);
       const result = await deployTemplate({
         account, template, name: d.name,
         bindingSelections: d.bindingSelections || {},
@@ -382,6 +384,8 @@ router.post('/deploy-batch', async (req: Request, res: Response, next: NextFunct
 
       return {
         accountId: d.accountId,
+        accountName: account.name,
+        cfAccountId: account.account_id,
         name: d.name,
         success: result.success,
         error: result.success ? undefined : (result.error || '部署失败'),

@@ -83,7 +83,7 @@ export async function getAiUsageToday(account: Account): Promise<AiUsage> {
   const timeout = setTimeout(() => controller.abort(), 15000);
   let resp;
   try {
-    resp = await proxyFetch(fetchUrl, { ...fetchInit, signal: controller.signal });
+    resp = await proxyFetch(fetchUrl, { ...fetchInit, signal: controller.signal }, 300000, undefined, account);
   } catch (e) {
     appLogger.error(`[AI Usage] Fetch failed for ${account.name}: ${e}\n[DEBUG curl] ${buildCurlCommand(fetchUrl, fetchInit)}`);
     throw new Error(`AI usage fetch failed for ${account.name}: ${e}`);

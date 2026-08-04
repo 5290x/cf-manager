@@ -31,20 +31,62 @@
     </n-card>
 
     <n-card v-if="!isWorkerPlatform" title="代理设置" size="small" style="margin-bottom: 16px">
-      <n-space vertical>
-        <n-space align="center">
-          <n-switch :value="proxyEnabled" @update:value="toggleProxy" :loading="proxyToggling" />
-          <n-text :depth="proxyEnabled ? 1 : 3">{{ proxyEnabled ? '代理已启用' : '代理已关闭' }}</n-text>
-        </n-space>
-        <n-input-group>
-          <n-input v-model:value="proxyUrl" placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" clearable style="flex: 1" />
-          <n-button type="info" :loading="proxyTesting" :disabled="!proxyUrl" @click="testProxy">测试</n-button>
-          <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
-        </n-input-group>
-        <n-text depth="3" style="font-size: 12px">
-          支持 HTTP/HTTPS 和 SOCKS5 代理协议。此开关仅控制全局默认代理。
-          可在「账号管理」中为每个账户单独配置专属代理地址和独立开关，账户开关不受此全局开关影响。
-        </n-text>
+      <n-space vertical size="large">
+        <!-- 优先级说明 -->
+        <n-alert type="info" :bordered="false" style="font-size: 12px">
+          代理优先级：账户专属代理（已启用）&nbsp;&gt;&nbsp;Resin 代理池（已启用）&nbsp;&gt;&nbsp;全局代理（已启用）&nbsp;&gt;&nbsp;无代理。
+          可在「账号管理」中为每个账户单独配置专属代理。
+        </n-alert>
+
+        <!-- 全局代理 -->
+        <div>
+          <n-space align="center" style="margin-bottom: 12px">
+            <n-switch :value="proxyEnabled" @update:value="toggleProxy" :loading="proxyToggling" size="small" />
+            <n-text strong :depth="proxyEnabled ? 1 : 3">全局代理</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ proxyEnabled ? '已启用' : '已关闭' }}</n-text>
+          </n-space>
+          <n-input-group>
+            <n-input v-model:value="proxyUrl" placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" clearable style="flex: 1" />
+            <n-button type="info" :loading="proxyTesting" :disabled="!proxyUrl" @click="testProxy">测试</n-button>
+            <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
+          </n-input-group>
+          <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            支持 HTTP/HTTPS 和 SOCKS5/SOCKS5h 代理协议，作为所有账户的默认代理。
+          </n-text>
+        </div>
+
+        <n-divider style="margin: 4px 0" />
+
+        <!-- Resin 代理池 -->
+        <div>
+          <n-space align="center" style="margin-bottom: 12px">
+            <n-switch :value="resinEnabled" @update:value="toggleResin" :loading="resinToggling" size="small" />
+            <n-text strong :depth="resinEnabled ? 1 : 3">Resin 代理池</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ resinEnabled ? '已启用' : '已关闭' }}</n-text>
+            <n-button v-if="resinDashboardUrl && (resinDashboardUrl.startsWith('http://') || resinDashboardUrl.startsWith('https://'))" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
+              面板 ↗
+            </n-button>
+          </n-space>
+          <n-form label-placement="left" label-width="80" size="small">
+            <n-form-item label="服务地址">
+              <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260 或 socks5h://127.0.0.1:2260" clearable />
+            </n-form-item>
+            <n-form-item label="Token">
+              <n-input v-model:value="resinTokenInput" placeholder="RESIN_PROXY_TOKEN" clearable show-password-on="click" />
+            </n-form-item>
+            <n-form-item label="Platform">
+              <n-input v-model:value="resinPlatformInput" placeholder="Default" clearable />
+            </n-form-item>
+          </n-form>
+          <n-space>
+            <n-button type="info" :loading="resinTesting" :disabled="!resinUrlInput || !resinTokenInput" @click="testResin">测试连接</n-button>
+            <n-button type="primary" :loading="resinSaving" @click="saveResin">保存</n-button>
+          </n-space>
+          <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            启用后每个账户自动通过 Resin 出口，使用账户 ID 绑定稳定 IP（sticky session）。详见
+            <n-a href="https://github.com/Resinat/Resin" target="_blank">Resin 项目</n-a>。
+          </n-text>
+        </div>
       </n-space>
     </n-card>
 
@@ -232,6 +274,7 @@ import { NButton, NSpace, NTag, NSwitch, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { settingsApi } from '../api/settings';
 import { tasksApi } from '../api/storage';
+import { accountsApi } from '../api/accounts';
 import apiClient from '../api/client';
 import { useAccountStore } from '../stores/accountStore';
 import { formatCN } from '../utils/dateFormat';
@@ -248,9 +291,28 @@ const clearing = ref(false);
 const settings = ref<any>({});
 const proxyUrl = ref('');
 const proxyEnabled = ref(false);
+
+// 任务表单需要全量账户列表（不受分页影响）
+const taskAllAccounts = ref<any[]>([]);
+async function loadTaskAccounts() {
+  try {
+    const { data } = await accountsApi.getAll({ pageSize: 10000 });
+    taskAllAccounts.value = (data as any).accounts || [];
+  } catch { taskAllAccounts.value = []; }
+}
 const proxySaving = ref(false);
 const proxyTesting = ref(false);
 const proxyToggling = ref(false);
+
+// Resin 代理池
+const resinEnabled = ref(false);
+const resinUrlInput = ref('');
+const resinTokenInput = ref('');
+const resinPlatformInput = ref('Default');
+const resinDashboardUrl = ref('');
+const resinToggling = ref(false);
+const resinSaving = ref(false);
+const resinTesting = ref(false);
 
 const isWorkerPlatform = computed(() => settings.value.platform === 'cloudflare-workers');
 
@@ -261,6 +323,12 @@ async function fetchSettings() {
     settings.value = data;
     proxyUrl.value = data.proxy_url || '';
     proxyEnabled.value = !!data.proxy_enabled;
+    // Resin
+    resinEnabled.value = !!data.resin_enabled;
+    resinUrlInput.value = data.resin_url || '';
+    resinTokenInput.value = ''; // Token 不回填（安全考虑）
+    resinPlatformInput.value = data.resin_platform || 'Default';
+    resinDashboardUrl.value = data.resin_url || '';
   } catch {
     settings.value = {};
   } finally {
@@ -308,6 +376,65 @@ async function testProxy() {
   }
 }
 
+// ============ Resin 代理池 ============
+async function toggleResin(enabled: boolean) {
+  resinToggling.value = true;
+  try {
+    const { data } = await settingsApi.saveResin({ enabled });
+    resinEnabled.value = !!data.enabled;
+    message.success(enabled ? 'Resin 代理池已启用' : 'Resin 代理池已关闭');
+  } catch {
+    message.error('切换 Resin 失败');
+  } finally {
+    resinToggling.value = false;
+  }
+}
+
+async function saveResin() {
+  resinSaving.value = true;
+  try {
+    const cfg: any = {
+      url: resinUrlInput.value,
+      platform: resinPlatformInput.value || 'Default',
+    };
+    // 仅在用户输入了 Token 时才传（避免空值覆盖已有 Token）
+    if (resinTokenInput.value) {
+      cfg.token = resinTokenInput.value;
+    }
+    const { data } = await settingsApi.saveResin(cfg);
+    resinEnabled.value = !!data.enabled;
+    resinDashboardUrl.value = data.url || resinUrlInput.value;
+    resinTokenInput.value = ''; // 清空 Token 输入框
+    message.success('Resin 设置已保存');
+  } catch {
+    message.error('保存 Resin 设置失败');
+  } finally {
+    resinSaving.value = false;
+  }
+}
+
+async function testResin() {
+  resinTesting.value = true;
+  try {
+    // 先保存当前输入的配置，再测试
+    const cfg: any = {
+      url: resinUrlInput.value,
+      platform: resinPlatformInput.value || 'Default',
+    };
+    if (resinTokenInput.value) {
+      cfg.token = resinTokenInput.value;
+    }
+    await settingsApi.saveResin(cfg);
+    const { data } = await settingsApi.testResin();
+    message.success(`Resin 连接成功！延迟 ${data.latency_ms}ms，HTTP ${data.status}`);
+  } catch (err: any) {
+    const msg = err?.response?.data?.error?.message || err?.message || '连接失败';
+    message.error(`Resin 连接失败：${msg}`);
+  } finally {
+    resinTesting.value = false;
+  }
+}
+
 async function handleClearCache() {
   clearing.value = true;
   try {
@@ -349,7 +476,7 @@ const currentTypeDesc = computed(() => taskTypeDescMap[taskForm.value.type] || '
 const taskNeedsAccount = computed(() => ['kv_cleanup', 'd1_backup', 'r2_cleanup'].includes(taskForm.value.type));
 
 const accountOptions = computed(() =>
-  accountStore.accounts.filter((a: any) => a.is_active).map((a: any) => ({ label: a.name, value: a.id }))
+  taskAllAccounts.value.filter((a: any) => a.is_active).map((a: any) => ({ label: a.name, value: a.id }))
 );
 
 function onTaskTypeChange() {
@@ -575,6 +702,7 @@ onMounted(async () => {
     fetchTasks();
   }
   accountStore.fetchAccounts();
+  loadTaskAccounts();
   loadSources();
 });
 </script>

@@ -49,7 +49,7 @@ cf-manager/
 │   ├── sync-shared.js      # 将 shared/ 同步到 backend 和 worker
 │   ├── gen-version.js      # 从 CHANGELOG.md 生成 version.ts
 │   └── gen-catalog-validator.js  # 预编译 AJV 校验器（兼容 Workers）
-├── docker/           # Docker 构建配置
+├── docker/           # Docker 构建配置（all-in-one 单容器）
 ├── docs/             # 文档
 ├── docker-compose.yml
 ├── deploy.sh         # Docker 一键部署脚本
@@ -164,7 +164,7 @@ chmod +x deploy.sh && ./deploy.sh
 2. **修改 shared/ 后需要重新同步**：`node scripts/sync-shared.js`（dev/build 前自动执行）
 3. **Worker 运行时限制**：不能用 `eval`、`new Function`、Node.js 原生模块。AJV 校验器需通过 `gen-catalog-validator.js` 预编译为 standalone 代码
 4. **Cloudflare API 调用**：backend 通过 `cloudflare` SDK（`getCfClient()`），worker 通过 `fetch` 封装（`cfFetch()`）
-5. **前端 base 路径**：Worker 版固定为 `/admin/`，Docker 版通过 `BASE_URL` 环境变量配置
+5. **前端 base 路径**：Worker 版固定为 `/admin/`，Docker 版固定为 `/`（单容器 all-in-one）
 6. **提交前检查**：确保两端（backend + worker）功能同步，`CHANGELOG.md` 已更新版本号
 7. **D1 数据库迁移**：GitHub Actions 部署时自动执行 `schema.sql`（建表）+ `migrations.sql`（列级迁移），新增列只需编辑 `worker/src/db/migrations.sql`，无需修改 `deploy-cf.yml`。Docker 版（SQLite）通过 `initDb()` 在启动时自动迁移
 
@@ -282,10 +282,9 @@ chmod +x deploy.sh && ./deploy.sh
 | Catalog 校验器预编译 | `scripts/gen-catalog-validator.js` |
 | Docker Compose | `docker-compose.yml` |
 | Docker 部署脚本 | `deploy.sh` |
+| Docker 镜像发布 | `.github/workflows/docker-publish.yml` |
 | D1 数据库迁移脚本 | `worker/src/db/migrations.sql` |
-| 后端 Dockerfile | `docker/backend/Dockerfile` |
-| 前端 Dockerfile | `docker/frontend/Dockerfile` |
-| Nginx 配置模板 | `docker/frontend/nginx.conf.template` |
+| All-in-One Dockerfile | `docker/Dockerfile` |
 | 后端环境变量 | `backend/src/config.ts` |
 | Worker 环境变量/Binding | `worker/src/types.ts` + `worker/wrangler.toml` |
 | Vite 配置 | `frontend/vite.config.ts` |

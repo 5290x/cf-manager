@@ -3,6 +3,7 @@ import { getDeployHeaders } from './headers';
 import type { CatalogTemplate } from '../catalogValidator';
 import type { PreflightParams, PreflightResult } from './types';
 import { appLogger } from '../logger';
+import { proxyFetch } from '../proxyService';
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -45,9 +46,9 @@ export async function preflight(
   let workerExists = false;
   let remoteConfig: any = null;
   try {
-    const resp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/services/${params.name}`, {
+    const resp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/services/${params.name}`, {
       headers: { ...deployHeaders },
-    });
+    }, 30000, undefined, account);
     if (resp.ok) {
       workerExists = true;
       const json = await resp.json() as any;
@@ -55,9 +56,9 @@ export async function preflight(
 
       // 尝试下载远程脚本配置（bindings 等）
       try {
-        const settingsResp = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${params.name}/settings`, {
+        const settingsResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${params.name}/settings`, {
           headers: { ...deployHeaders },
-        });
+        }, 30000, undefined, account);
         if (settingsResp.ok) {
           const settingsJson = await settingsResp.json() as any;
           remoteConfig = { ...remoteConfig, ...settingsJson?.result };
