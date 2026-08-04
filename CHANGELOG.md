@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0] - 2026-08-04
+
+### 🚀 新特性
+
+- **Resin 代理池集成**：原生支持 [Resin](https://github.com/Resinat/Resin) 代理池网关，实现每账户 sticky IP 绑定。设置页新增「Resin 代理池」卡片，配置 Resin 服务地址、Token 和 Platform 后，系统自动为每个 CF 账户构建 `http://Platform.{accountId}:Token@resin-host:port` 格式的代理 URL，通过 Resin 的 sticky session 机制将每个账户绑定到稳定出口 IP，避免 Cloudflare 因 IP 频繁变动触发风控。
+- **代理优先级链**：账户专属代理(已启用) > Resin(已启用) > 全局代理(已启用) > 无代理。账户专属代理可覆盖 Resin，允许个别账户不走代理池。
+
+### 🔧 优化
+
+- `proxyFetch` 新增 `account` 参数，支持自动使用 Resin/账户代理（pagesDeploy 调用已适配）。
+- `getAccountProxyUrl` 修正账户专属代理需 `proxy_enabled === 1` 才生效（与 `getHttpAgentForAccount` 行为一致）。
+
 ## [1.5.0] - 2026-08-04
 
 ### 🚀 新特性

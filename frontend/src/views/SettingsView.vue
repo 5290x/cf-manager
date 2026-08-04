@@ -48,6 +48,38 @@
       </n-space>
     </n-card>
 
+    <n-card v-if="!isWorkerPlatform" title="Resin 代理池" size="small" style="margin-bottom: 16px">
+      <n-space vertical>
+        <n-space align="center">
+          <n-switch :value="resinEnabled" @update:value="toggleResin" :loading="resinToggling" />
+          <n-text :depth="resinEnabled ? 1 : 3">{{ resinEnabled ? 'Resin 已启用' : 'Resin 已关闭' }}</n-text>
+          <n-button v-if="resinDashboardUrl" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
+            Resin 面板 ↗
+          </n-button>
+        </n-space>
+        <n-form label-placement="left" label-width="80" size="small">
+          <n-form-item label="服务地址">
+            <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260" clearable />
+          </n-form-item>
+          <n-form-item label="Token">
+            <n-input v-model:value="resinTokenInput" placeholder="RESIN_PROXY_TOKEN" clearable show-password-on="click" />
+          </n-form-item>
+          <n-form-item label="Platform">
+            <n-input v-model:value="resinPlatformInput" placeholder="Default" clearable />
+          </n-form-item>
+        </n-form>
+        <n-space>
+          <n-button type="info" :loading="resinTesting" :disabled="!resinUrlInput || !resinTokenInput" @click="testResin">测试连接</n-button>
+          <n-button type="primary" :loading="resinSaving" @click="saveResin">保存</n-button>
+        </n-space>
+        <n-text depth="3" style="font-size: 12px">
+          Resin 代理池启用后，每个账户自动通过 Resin 出口，使用账户 ID 绑定稳定 IP（sticky session）。
+          优先级：账户专属代理 > Resin > 全局代理。详见
+          <n-a href="https://github.com/Resinat/Resin" target="_blank">Resin 项目</n-a>。
+        </n-text>
+      </n-space>
+    </n-card>
+
     <n-card title="缓存管理" size="small" style="margin-bottom: 16px">
       <n-space>
         <n-button type="warning" @click="handleClearCache" :loading="clearing">清除缓存</n-button>
@@ -262,6 +294,16 @@ const proxySaving = ref(false);
 const proxyTesting = ref(false);
 const proxyToggling = ref(false);
 
+// Resin 代理池
+const resinEnabled = ref(false);
+const resinUrlInput = ref('');
+const resinTokenInput = ref('');
+const resinPlatformInput = ref('Default');
+const resinDashboardUrl = ref('');
+const resinToggling = ref(false);
+const resinSaving = ref(false);
+const resinTesting = ref(false);
+
 const isWorkerPlatform = computed(() => settings.value.platform === 'cloudflare-workers');
 
 async function fetchSettings() {
@@ -271,6 +313,12 @@ async function fetchSettings() {
     settings.value = data;
     proxyUrl.value = data.proxy_url || '';
     proxyEnabled.value = !!data.proxy_enabled;
+    // Resin
+    resinEnabled.value = !!data.resin_enabled;
+    resinUrlInput.value = data.resin_url || '';
+    resinTokenInput.value = ''; // Token 不回填（安全考虑）
+    resinPlatformInput.value = data.resin_platform || 'Default';
+    resinDashboardUrl.value = data.resin_url || '';
   } catch {
     settings.value = {};
   } finally {
@@ -315,6 +363,65 @@ async function testProxy() {
     message.error(`代理不可用：${msg}`);
   } finally {
     proxyTesting.value = false;
+  }
+}
+
+// ============ Resin 代理池 ============
+async function toggleResin(enabled: boolean) {
+  resinToggling.value = true;
+  try {
+    const { data } = await settingsApi.saveResin({ enabled });
+    resinEnabled.value = !!data.enabled;
+    message.success(enabled ? 'Resin 代理池已启用' : 'Resin 代理池已关闭');
+  } catch {
+    message.error('切换 Resin 失败');
+  } finally {
+    resinToggling.value = false;
+  }
+}
+
+async function saveResin() {
+  resinSaving.value = true;
+  try {
+    const cfg: any = {
+      url: resinUrlInput.value,
+      platform: resinPlatformInput.value || 'Default',
+    };
+    // 仅在用户输入了 Token 时才传（避免空值覆盖已有 Token）
+    if (resinTokenInput.value) {
+      cfg.token = resinTokenInput.value;
+    }
+    const { data } = await settingsApi.saveResin(cfg);
+    resinEnabled.value = !!data.enabled;
+    resinDashboardUrl.value = data.url || resinUrlInput.value;
+    resinTokenInput.value = ''; // 清空 Token 输入框
+    message.success('Resin 设置已保存');
+  } catch {
+    message.error('保存 Resin 设置失败');
+  } finally {
+    resinSaving.value = false;
+  }
+}
+
+async function testResin() {
+  resinTesting.value = true;
+  try {
+    // 先保存当前输入的配置，再测试
+    const cfg: any = {
+      url: resinUrlInput.value,
+      platform: resinPlatformInput.value || 'Default',
+    };
+    if (resinTokenInput.value) {
+      cfg.token = resinTokenInput.value;
+    }
+    await settingsApi.saveResin(cfg);
+    const { data } = await settingsApi.testResin();
+    message.success(`Resin 连接成功！延迟 ${data.latency_ms}ms，HTTP ${data.status}`);
+  } catch (err: any) {
+    const msg = err?.response?.data?.error?.message || err?.message || '连接失败';
+    message.error(`Resin 连接失败：${msg}`);
+  } finally {
+    resinTesting.value = false;
   }
 }
 
