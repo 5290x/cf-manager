@@ -1,5 +1,7 @@
 services:
   cf-manager:
+    image: cf-manager
+    container_name: cf-manager
     build:
       context: .
       dockerfile: docker/Dockerfile
