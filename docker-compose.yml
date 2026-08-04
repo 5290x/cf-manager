@@ -18,8 +18,4 @@ services:
       - DEMO_ACCOUNT_IDS=${DEMO_ACCOUNT_IDS:-}
       - DB_PATH=/app/data/cf-manager.db
     volumes:
-      - cf-data:/app/data
-
-volumes:
-  cf-data:
-    driver: local
+      - ./data:/app/data

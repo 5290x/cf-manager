@@ -88,7 +88,7 @@ jobs:
           echo "docker run -d --name cf-manager -p 3000:3000 \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e ENCRYPTION_KEY=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e API_SECRET=\"cfmgrbest\" \\" >> $GITHUB_STEP_SUMMARY
-          echo "  -v cf-data:/app/data \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -v ./data:/app/data \\" >> $GITHUB_STEP_SUMMARY
           echo "  --restart unless-stopped \\" >> $GITHUB_STEP_SUMMARY
           echo "  ${{ steps.meta.outputs.image }}:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
