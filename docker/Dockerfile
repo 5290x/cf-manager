@@ -61,12 +61,12 @@ COPY --from=frontend-builder /app/dist ./public
 
 RUN mkdir -p /app/data
 
-ENV PORT=80
+ENV PORT=3000
 ENV DB_PATH=/app/data/cf-manager.db
 
-EXPOSE 80
+EXPOSE 3000
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:80/api/health || exit 1
+  CMD wget -qO- http://localhost:3000/api/health || exit 1
 
 CMD ["node", "dist/index.js"]

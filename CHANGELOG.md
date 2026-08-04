@@ -9,21 +9,6 @@
 - **Docker 合并为单容器（All-in-One）**：将原来的双容器架构（Nginx 前端 + Node.js 后端）合并为单一 Node.js 容器。Express 直接通过 `express.static` + `compression` 中间件提供前端静态文件服务（gzip 压缩、30 天缓存、SPA 路由回退），不再依赖 Nginx。SSE 流式响应在 Node.js 中原生处理，无需 `proxy_buffering off` 等配置。
 - **预构建 Docker 镜像发布到 GHCR**：新增 `docker-publish.yml` GitHub Actions workflow，在 Release 打 tag 时自动构建多架构（amd64 + arm64）镜像并推送到 `ghcr.io/hefy2027/cf-manager`。用户无需 clone 仓库，直接 `docker pull` 即可使用。
 
-### 🔧 优化
-
-- `proxyFetch` 新增 `account` 参数，支持自动使用 Resin/账户代理（pagesDeploy / workerDeploy / assetsUpload / preflight 调用已适配）。
-- `getAccountProxyUrl` 修正账户专属代理需 `proxy_enabled === 1` 才生效（与 `getHttpAgentForAccount` 行为一致）。
-- `proxyFetch` 重试逻辑（ECONNRESET/EPIPE）补充 `account` 分支，修复重试时丢失 Resin/账户代理的 bug。
-- **Docker 部署简化**：`docker-compose.yml` 简化为单服务配置；`deploy.sh` 适配单容器构建流程。
-- **移除 `BASE_URL` 环境变量**：Docker 版前端路径固定为 `/`，不再支持自定义子路径（Worker 版仍固定 `/admin/`）。
-- **`.dockerignore` 更新**：适配新的 `docker/Dockerfile` 路径。
-
-### 🗑️ 移除
-
-- 删除 `docker/backend/Dockerfile`、`docker/frontend/` 目录（Dockerfile、nginx.conf、nginx.conf.template、entrypoint.sh）。
-
-## [1.4.4] - 2026-08-03
-
 ### 🐛 Bug 修复
 
 - **修复 Worker 端批量部署缺少 `db` 参数**：`POST /store/deploy-batch` 调用 `deployTemplate` 时补充 `db: c.env.DB`，确保批量部署路径下审计日志正常写入（与单次部署路由 `POST /store/deploy` 行为一致）。
@@ -33,8 +18,18 @@
 
 ### 🔧 优化
 
+- `proxyFetch` 新增 `account` 参数，支持自动使用 Resin/账户代理（pagesDeploy / workerDeploy / assetsUpload / preflight 调用已适配）。
+- `getAccountProxyUrl` 修正账户专属代理需 `proxy_enabled === 1` 才生效（与 `getHttpAgentForAccount` 行为一致）。
+- `proxyFetch` 重试逻辑（ECONNRESET/EPIPE）补充 `account` 分支，修复重试时丢失 Resin/账户代理的 bug。
 - **部署路由增加账户日志**：在 backend 和 worker 的 `/store/deploy` 与 `/store/deploy-batch` 路由中添加部署账户信息日志（账户名、DB id、CF account_id），方便定位多账户部署时可能出现的账户选择问题。
 - **部署结果包含账户信息**：`DeployResult` 接口新增 `accountName` / `accountId` 字段，前端成功弹窗展示部署目标账户名，用户可直观确认部署到了正确的账户。
+- **Docker 部署简化**：`docker-compose.yml` 简化为单服务配置；`deploy.sh` 适配单容器构建流程。
+- **移除 `BASE_URL` 环境变量**：Docker 版前端路径固定为 `/`，不再支持自定义子路径（Worker 版仍固定 `/admin/`）。
+- **`.dockerignore` 更新**：适配新的 `docker/Dockerfile` 路径。
+
+### 🗑️ 移除
+
+- 删除 `docker/backend/Dockerfile`、`docker/frontend/` 目录（Dockerfile、nginx.conf、nginx.conf.template、entrypoint.sh）。
 
 ## [1.4.3] - 2026-08-03
 
