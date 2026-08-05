@@ -31,6 +31,14 @@
         style="width: 200px;"
         @update:value="handleSearchInput"
       />
+      <template v-if="checkedRowKeys.length > 0">
+        <n-divider vertical />
+        <n-text strong depth="3">已选 {{ checkedRowKeys.length }} 项</n-text>
+        <n-button size="small" type="primary" ghost @click="openBatchFeatures">批量设置功能</n-button>
+        <n-button v-if="!isWorkerPlatform" size="small" @click="openBatchProxy">批量设置代理</n-button>
+        <n-button size="small" type="error" @click="showBatchDeleteConfirm = true">批量删除</n-button>
+        <n-button size="small" quaternary @click="checkedRowKeys = []">取消选择</n-button>
+      </template>
     </n-space>
 
     <n-data-table
@@ -44,15 +52,6 @@
       :row-key="(row: any) => row.id"
       v-model:checked-row-keys="checkedRowKeys"
     />
-
-    <!-- 批量操作栏 -->
-    <n-space v-if="checkedRowKeys.length > 0" align="center" :size="8" style="margin-top: 12px; padding: 10px 12px; background: var(--info-color-suppl); border-radius: 6px;">
-      <n-text strong style="color: #fff">已选 {{ checkedRowKeys.length }} 项</n-text>
-      <n-button size="small" @click="openBatchFeatures">批量设置功能</n-button>
-      <n-button v-if="!isWorkerPlatform" size="small" @click="openBatchProxy">批量设置代理</n-button>
-      <n-button size="small" type="error" @click="showBatchDeleteConfirm = true">批量删除</n-button>
-      <n-button size="small" quaternary @click="checkedRowKeys = []" style="color: #fff">取消选择</n-button>
-    </n-space>
 
     <n-modal v-model:show="showAddModal" preset="dialog" :title="editingId === null ? '添加账号' : '编辑账号'" style="width: 500px; max-width: 95vw">
       <n-form :model="form" label-placement="left" label-width="100">
