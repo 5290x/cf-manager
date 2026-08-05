@@ -312,20 +312,34 @@ runs:
         fi
 
         # 演示模式：保护部署账户（仅 demo_mode=true 时启用）
+        # 以部署时使用的邮箱（CLOUDFLARE_EMAIL）为基准，在 D1 中查询对应账户 ID 并设置保护，
+        # 无论本次是否为 full_wipe（full_wipe 时 seed 写入的账户 email 同样是 CLOUDFLARE_EMAIL）。
         if [ "${{ inputs.demo_mode }}" = "true" ]; then
-          # 优先使用 full_wipe 时刚插入的部署账户 ID，否则查询 D1
-          DEPLOY_ACCOUNT_ID="${{ steps.seed.outputs.deploy_account_id }}"
-          if [ -n "$DEPLOY_ACCOUNT_ID" ]; then
-            DEMO_IDS="$DEPLOY_ACCOUNT_ID"
-            echo "演示模式已启用，保护部署账户 ID: $DEMO_IDS"
+          DEPLOY_EMAIL="$CLOUDFLARE_EMAIL"
+          if [ -n "$DEPLOY_EMAIL" ]; then
+            echo "演示模式已启用，根据部署邮箱查询账户 ID: $DEPLOY_EMAIL"
+            # 转义单引号，避免 email 含引号导致 SQL 语法错误
+            ESC_EMAIL=$(printf '%s' "$DEPLOY_EMAIL" | sed "s/'/''/g")
+            DEMO_IDS=$(wrangler d1 execute "$DB_NAME" --remote --command="SELECT GROUP_CONCAT(id) AS ids FROM accounts WHERE email='$ESC_EMAIL'" --json 2>/dev/null | node -e "
+              const input = require('fs').readFileSync('/dev/stdin','utf8');
+              try {
+                const data = JSON.parse(input);
+                const row = Array.isArray(data) ? data[0] : data;
+                const ids = row?.results?.[0]?.ids ?? '';
+                if (ids) console.log(ids);
+              } catch(e) {}
+            " || echo "")
+            if [ -n "$DEMO_IDS" ]; then
+              echo "保护部署账户 IDs: $DEMO_IDS"
+              echo "$DEMO_IDS" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT"
+            else
+              echo "未在 D1 中找到匹配部署邮箱的账户，跳过 DEMO_ACCOUNT_IDS 设置"
+            fi
+            echo "demo_ids=${DEMO_IDS:-\"(无匹配账户)\"}" >> $GITHUB_OUTPUT
           else
-            echo "演示模式已启用，但本次未创建部署账户（非 full_wipe），跳过 DEMO_ACCOUNT_IDS 设置"
-            DEMO_IDS=""
+            echo "未获取到部署邮箱，跳过 DEMO_ACCOUNT_IDS 设置"
+            echo "demo_ids=(无邮箱)" >> $GITHUB_OUTPUT
           fi
-          if [ -n "$DEMO_IDS" ]; then
-            echo "$DEMO_IDS" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT"
-          fi
-          echo "demo_ids=${DEMO_IDS:-"(无)"}" >> $GITHUB_OUTPUT
         else
           echo "演示模式已关闭，所有账户均可自由编辑/删除"
           echo "" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT" 2>/dev/null || true
