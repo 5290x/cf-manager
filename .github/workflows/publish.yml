@@ -16,8 +16,14 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
+  # ===== Job 1: 打包 Worker 预编译包并创建 GitHub Release =====
   release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      tag_exists: ${{ steps.version.outputs.tag_exists }}
+      ref: ${{ steps.ref.outputs.ref }}
+      has_changelog: ${{ steps.changelog.outputs.has_changelog }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -59,6 +65,17 @@ jobs:
         run: |
           git checkout "${{ steps.version.outputs.tag }}"
           echo "已切换到已有 tag: ${{ steps.version.outputs.tag }}"
+
+      - name: Determine build ref
+        id: ref
+        run: |
+          if [ "${{ steps.version.outputs.tag_exists }}" == "true" ]; then
+            # 覆盖已有 Release：构建该 tag 的代码
+            echo "ref=${{ steps.version.outputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            # 新建 Release：构建触发工作流的当前分支（通常为 master）
+            echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Install worker dependencies
         working-directory: worker
@@ -114,13 +131,22 @@ jobs:
           generate_release_notes: true
           files: worker/cf-manager.zip
 
-      # ===== Docker 镜像构建与推送 =====
+  # ===== Job 2: 构建并推送多架构 Docker 镜像 =====
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release.outputs.ref }}
+          fetch-depth: 0
+
       - name: Prepare Docker metadata
         id: docker_meta
         run: |
           IMAGE_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "image=${IMAGE_LOWER}" >> $GITHUB_OUTPUT
-          echo "Docker image: ${IMAGE_LOWER}:${{ steps.version.outputs.tag }}"
+          echo "Docker image: ${IMAGE_LOWER}:${{ needs.release.outputs.tag }}"
 
       - name: Set up QEMU for multi-arch builds
         uses: docker/setup-qemu-action@v3
@@ -145,7 +171,7 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
           tags: |
-            ${{ steps.docker_meta.outputs.image }}:${{ steps.version.outputs.tag }}
+            ${{ steps.docker_meta.outputs.image }}:${{ needs.release.outputs.tag }}
             ${{ steps.docker_meta.outputs.image }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -154,15 +180,15 @@ jobs:
         if: always()
         run: |
           IMAGE_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${{ needs.release.outputs.tag }}"
           echo "## 发布完成 ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| 项目 | 内容 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 版本号 | ${TAG} (${{ steps.version.outputs.tag_exists == 'true' && '覆盖已有 Release' || '新建 Release' }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| 版本号 | ${TAG} (${{ needs.release.outputs.tag_exists == 'true' && '覆盖已有 Release' || '新建 Release' }}) |" >> $GITHUB_STEP_SUMMARY
           echo "| Release 地址 | https://github.com/${{ github.repository }}/releases/tag/${TAG} |" >> $GITHUB_STEP_SUMMARY
           echo "| 附件 | cf-manager.zip (Worker 预编译包) |" >> $GITHUB_STEP_SUMMARY
-          echo "| CHANGELOG | ${{ steps.changelog.outputs.has_changelog == 'true' && '✅ 已包含' || '⚠️ 自动生成' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CHANGELOG | ${{ needs.release.outputs.has_changelog == 'true' && '✅ 已包含' || '⚠️ 自动生成' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker 镜像 | \`${IMAGE_LOWER}:${TAG}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker Latest | \`${IMAGE_LOWER}:latest\` |" >> $GITHUB_STEP_SUMMARY
           echo "| 架构 | linux/amd64, linux/arm64 |" >> $GITHUB_STEP_SUMMARY
