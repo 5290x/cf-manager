@@ -22,6 +22,10 @@ inputs:
     description: '完全覆盖：删除并重建 D1 + KV'
     required: false
     default: 'false'
+  demo_mode:
+    description: '演示模式：保护部署账户（禁止编辑/删除等破坏性操作）'
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -153,6 +157,7 @@ runs:
         echo "=== Migration complete ==="
 
     - name: Seed deployment account (full wipe only)
+      id: seed
       if: ${{ inputs.full_wipe == 'true' }}
       shell: bash
       run: |
@@ -185,6 +190,18 @@ runs:
 
         echo "插入部署账户..."
         wrangler d1 execute "$DB_NAME" --remote --command="INSERT INTO accounts (name, auth_type, api_key, email, account_id, enabled_features) VALUES ('Deploy Account', 'global_key', '$ENCRYPTED', '$API_EMAIL', '$ACCOUNT_ID', 'ai,workers,browser_render,dns,storage')"
+
+        # 获取刚插入的账户 ID（用于演示模式保护）
+        DEPLOY_ACCOUNT_ID=$(wrangler d1 execute "$DB_NAME" --remote --command="SELECT id FROM accounts WHERE name='Deploy Account' ORDER BY id DESC LIMIT 1" --json 2>/dev/null | node -e "
+          const input = require('fs').readFileSync('/dev/stdin','utf8');
+          try {
+            const data = JSON.parse(input);
+            const row = Array.isArray(data) ? data[0] : data;
+            const id = row?.results?.[0]?.id ?? '';
+            if (id) console.log(id);
+          } catch(e) {}
+        " || echo "")
+        echo "deploy_account_id=$DEPLOY_ACCOUNT_ID" >> $GITHUB_OUTPUT
 
     - name: Setup KV namespace
       id: kv
@@ -294,31 +311,26 @@ runs:
           wrangler pages secret put API_SECRET --project-name "$PROJECT" <<< "$API_SECRET"
         fi
 
-        # 从 D1 自动获取所有账户 ID 作为演示模式保护列表
-        echo "查询 D1 中的账户列表..."
-        # 注意：不能用 2>&1，否则 wrangler 的警告会污染 JSON；stderr 丢弃即可
-        ACCOUNT_JSON=$(wrangler d1 execute "$DB_NAME" --remote --command="SELECT GROUP_CONCAT(id) AS ids FROM accounts" --json 2>/dev/null || true)
-        echo "D1 查询原始输出: $ACCOUNT_JSON"
-        # 用 node 解析 JSON，兼容空表（ids 为 null）和 wrangler v4 的数组结构
-        DEMO_IDS=$(node -e '
-          const input = process.argv[1] || "";
-          try {
-            const data = JSON.parse(input);
-            // wrangler d1 execute --json 输出为数组，取第一个对象的 ids 字段
-            const row = Array.isArray(data) ? data[0] : data;
-            const ids = row?.results?.[0]?.ids ?? row?.ids ?? null;
-            if (ids !== null && ids !== undefined && String(ids).trim()) console.log(String(ids));
-          } catch (e) {
-            console.error("JSON 解析失败: " + e.message);
-          }
-        ' "$ACCOUNT_JSON" || echo "")
-        if [ -n "$DEMO_IDS" ]; then
-          echo "保护账户 IDs: $DEMO_IDS"
-          echo "$DEMO_IDS" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT"
+        # 演示模式：保护部署账户（仅 demo_mode=true 时启用）
+        if [ "${{ inputs.demo_mode }}" = "true" ]; then
+          # 优先使用 full_wipe 时刚插入的部署账户 ID，否则查询 D1
+          DEPLOY_ACCOUNT_ID="${{ steps.seed.outputs.deploy_account_id }}"
+          if [ -n "$DEPLOY_ACCOUNT_ID" ]; then
+            DEMO_IDS="$DEPLOY_ACCOUNT_ID"
+            echo "演示模式已启用，保护部署账户 ID: $DEMO_IDS"
+          else
+            echo "演示模式已启用，但本次未创建部署账户（非 full_wipe），跳过 DEMO_ACCOUNT_IDS 设置"
+            DEMO_IDS=""
+          fi
+          if [ -n "$DEMO_IDS" ]; then
+            echo "$DEMO_IDS" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT"
+          fi
+          echo "demo_ids=${DEMO_IDS:-"(无)"}" >> $GITHUB_OUTPUT
         else
-          echo "暂无账户，跳过 DEMO_ACCOUNT_IDS 设置"
+          echo "演示模式已关闭，所有账户均可自由编辑/删除"
+          echo "" | wrangler pages secret put DEMO_ACCOUNT_IDS --project-name "$PROJECT" 2>/dev/null || true
+          echo "demo_ids=(关闭)" >> $GITHUB_OUTPUT
         fi
-        echo "demo_ids=$DEMO_IDS" >> $GITHUB_OUTPUT
 
     - name: Deploy to Cloudflare Pages
       id: deploy
@@ -371,5 +383,6 @@ runs:
         echo "| D1 数据库 | ${{ inputs.d1_database_name }} (${{ steps.d1.outputs.database_id }}) |" >> $GITHUB_STEP_SUMMARY
         echo "| KV 命名空间 | ${{ inputs.kv_namespace_name }} (${{ steps.kv.outputs.kv_namespace_id }}) |" >> $GITHUB_STEP_SUMMARY
         echo "| 完全覆盖 | ${{ inputs.full_wipe }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 演示模式 | ${{ inputs.demo_mode }} |" >> $GITHUB_STEP_SUMMARY
         echo "| 演示保护账户 IDs | ${{ steps.secrets.outputs.demo_ids }} |" >> $GITHUB_STEP_SUMMARY
         echo "| 访问地址 | ${{ steps.deploy.outputs.deploy_url }} |" >> $GITHUB_STEP_SUMMARY

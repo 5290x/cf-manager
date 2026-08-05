@@ -39,6 +39,11 @@ on:
         required: false
         default: 'cfmgrbest'
         type: string
+      demo_mode:
+        description: '演示模式：保护部署账户（禁止编辑/删除等破坏性操作）'
+        required: false
+        default: true
+        type: boolean
       full_wipe:
         description: '完全覆盖：删除并重建 D1 数据库 + 清空 KV 命名空间'
         required: false
@@ -75,4 +80,5 @@ jobs:
           project_name: ${{ github.event.inputs.project_name }}
           d1_database_name: ${{ github.event.inputs.d1_database_name }}
           kv_namespace_name: ${{ github.event.inputs.kv_namespace_name }}
+          demo_mode: ${{ github.event.inputs.demo_mode }}
           full_wipe: ${{ github.event.inputs.full_wipe }}
