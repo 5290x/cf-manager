@@ -1,18 +1,18 @@
 <template>
   <div class="page-view">
-    <n-space justify="space-between" align="center" :wrap="true">
+    <n-space justify="space-between" align="center" :wrap="true" style="margin-bottom: 16px">
       <n-h2 style="margin: 0">Workers & Pages 管理</n-h2>
-      <n-space>
+      <n-space :size="8">
         <n-button size="small" @click="openBatchDeploy" :disabled="!allAccounts.length">批量部署</n-button>
         <n-button size="small" type="primary" @click="openDeploy()" :disabled="!allAccounts.length">部署</n-button>
       </n-space>
     </n-space>
 
-    <!-- 账户卡片：只显示有部署数量的账户，点击切换加载 -->
-    <div class="card-grid-scroll" style="width: 100%">
-      <n-grid v-if="accountCards.length" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="width: 100%; margin-bottom: 12px;">
+    <!-- 账户卡片：只显示有部署数量的账户，悬停显示用量详情，点击切换加载 -->
+    <div class="card-grid-scroll" style="width: 100%; margin-bottom: 16px">
+      <n-grid v-if="accountCards.length" :x-gap="10" :y-gap="10" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="width: 100%">
         <n-gi v-for="c in accountCards" :key="c.accountId">
-          <n-popover trigger="click" placement="bottom" style="display: block; width: 100%;">
+          <n-popover trigger="hover" placement="bottom" style="display: block; width: 100%;">
             <template #trigger>
               <div
                 class="worker-compact-card"
@@ -63,10 +63,34 @@
         :columns="columns"
         :data="workerStore.workers"
         :loading="workerStore.loading"
-        :max-height="600"
+        flex-height
         :bordered="false"
         :scroll-x="700"
+        :pagination="false"
+        style="flex: 1; min-height: 0"
       />
+    </div>
+
+    <!-- 底部统计栏 -->
+    <div class="table-footer-bar">
+      <n-space align="center" :size="16">
+        <n-text depth="3" style="font-size: 12px">
+          共 {{ workerStore.workers.length }} 个部署
+        </n-text>
+        <n-text depth="3" style="font-size: 12px">·</n-text>
+        <n-space align="center" :size="4">
+          <span class="status-dot status-dot--worker" />
+          <n-text depth="3" style="font-size: 12px">Worker {{ workerCount }}</n-text>
+        </n-space>
+        <n-space align="center" :size="4">
+          <span class="status-dot status-dot--pages" />
+          <n-text depth="3" style="font-size: 12px">Pages {{ pagesCount }}</n-text>
+        </n-space>
+        <template v-if="workerStore.selectedAccountId">
+          <n-text depth="3" style="font-size: 12px">·</n-text>
+          <n-text depth="3" style="font-size: 12px">当前账户: {{ selectedAccountName }}</n-text>
+        </template>
+      </n-space>
     </div>
 
     <!-- 部署 Modal -->
@@ -222,6 +246,16 @@ function drawerWidth(desktopWidth: number): number {
 
 // ============ 账户卡片（显示所有启用 workers 功能的账户，统计常驻可见） ============
 const accountCards = computed(() => workerStore.summary || []);
+
+// 底部统计：Worker / Pages 数量
+const workerCount = computed(() => workerStore.workers.filter((w: any) => w.type === 'worker').length);
+const pagesCount = computed(() => workerStore.workers.filter((w: any) => w.type === 'pages').length);
+const selectedAccountName = computed(() => {
+  if (!workerStore.selectedAccountId) return '';
+  const acc = accountCards.value.find((c: any) => c.accountId === workerStore.selectedAccountId);
+  return acc?.accountName || '';
+});
+
 function selectAccount(accountId: number) {
   workerStore.selectedAccountId = accountId;
   workerStore.fetchWorkers(accountId);
@@ -323,7 +357,14 @@ async function handleDeploy() {
       message.success(selectedZipFile.value ? 'Pages 部署成功' : 'Pages 项目创建成功');
     }
     showDeployModal.value = false;
-    workerStore.fetchWorkers();
+    // 部署后只刷新当前选中账户，不加载全部
+    if (workerStore.selectedAccountId) {
+      workerStore.fetchWorkers(workerStore.selectedAccountId);
+    } else {
+      workerStore.fetchWorkers();
+    }
+    // 刷新摘要（用量+数量）
+    workerStore.fetchSummary();
   } finally { deploying.value = false; }
 }
 
@@ -346,20 +387,35 @@ async function handleDelete(row: any) {
   if (row.type === 'pages') await workersApi.deletePages(row.cfAccountId, row.name);
   else await workersApi.delete(row.cfAccountId, row.name);
   message.success(row.type === 'pages' ? 'Pages 项目已删除' : 'Worker 已删除');
-  workerStore.fetchWorkers();
+  // 删除后只刷新当前选中账户，不加载全部
+  if (workerStore.selectedAccountId) {
+    workerStore.fetchWorkers(workerStore.selectedAccountId);
+  } else {
+    workerStore.fetchWorkers();
+  }
+  // 刷新摘要（数量会变化）
+  workerStore.fetchSummary();
 }
 
 // ============ Table Columns ============
 const columns = computed<DataTableColumns<any>>(() => {
-  const hasModifiedOn = workerStore.workers.some((w: any) => w.modified_on);
+  const hasModifiedOn = workerStore.workers.some((w: any) => w.modified_on || w.created_on);
   const cols: DataTableColumns<any> = [
     { title: '类型', key: 'type', width: 80, render: (row) => h(NTag, { size: 'small', type: row.type === 'pages' ? 'info' : 'success' }, { default: () => row.type === 'pages' ? 'Pages' : 'Worker' }) },
     { title: '名称', key: 'name', width: 180 },
     { title: '账号', key: 'accountName', width: 120, render: (row) => row.accountName || row.cfAccountId },
-    { title: '状态', key: 'status', width: 100, render: (row) => h(NTag, { size: 'small', type: row.status === 'deployed' || row.status === 'enabled' ? 'success' : 'default' }, { default: () => row.status || (row.type === 'pages' ? 'active' : '已部署') }) },
+    { title: '状态', key: 'status', width: 100, render: (row) => {
+      // 统一状态文案：Worker 的 deployed/enabled 和 Pages 的 active 都显示为「活跃」
+      const rawStatus = row.status || (row.type === 'pages' ? 'active' : 'deployed');
+      const isActive = ['active', 'deployed', 'enabled'].includes(rawStatus);
+      return h(NTag, { size: 'small', type: isActive ? 'success' : 'default' }, { default: () => isActive ? '活跃' : rawStatus });
+    } },
   ];
   if (hasModifiedOn) {
-    cols.push({ title: '修改时间', key: 'modified_on', width: 180, render: (row) => row.modified_on ? formatCN(row.modified_on) : '-' });
+    cols.push({ title: '修改时间', key: 'modified_on', width: 180, render: (row) => {
+      const time = row.modified_on || row.created_on;
+      return time ? formatCN(time) : '-';
+    } });
   }
   cols.push({
     title: '操作', key: 'actions', width: 280,
@@ -437,7 +493,13 @@ async function handleBatchDeploy() {
     }
     const successCount = batchResults.value.filter((r: any) => r.success).length;
     message.success(`批量部署完成: ${successCount}/${targets.length} 成功`);
-    workerStore.fetchWorkers();
+    // 批量部署后刷新当前账户 + 摘要
+    if (workerStore.selectedAccountId) {
+      workerStore.fetchWorkers(workerStore.selectedAccountId);
+    } else {
+      workerStore.fetchWorkers();
+    }
+    workerStore.fetchSummary();
   } finally { batchDeploying.value = false; }
 }
 
@@ -462,33 +524,33 @@ onMounted(async () => {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  height: 28px;
-  padding: 0 8px;
+  height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--app-border);
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, border-color 0.2s;
   background-color: var(--app-bg-card);
   box-sizing: border-box;
 }
 .worker-compact-card:hover { background-color: var(--app-bg-hover); }
 .worker-compact-card__count {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--app-text-disabled);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;
 }
 .worker-compact-card--active {
-  background-color: #e8f0fe;
+  /* 半透明蓝色在明暗模式下都能良好显示 */
+  background-color: rgba(64, 152, 252, 0.12);
   border-color: #4098fc;
 }
-html.app-dark .worker-compact-card--active {
-  background-color: rgba(64, 152, 252, 0.15);
-  border-color: #4098fc;
+.worker-compact-card--active:hover {
+  background-color: rgba(64, 152, 252, 0.18);
 }
 .worker-compact-card__name {
-  font-size: 12px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -496,7 +558,7 @@ html.app-dark .worker-compact-card--active {
   min-width: 0;
 }
 .worker-compact-card__metric {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-primary);
   font-weight: 500;
   flex-shrink: 0;
@@ -506,9 +568,39 @@ html.app-dark .worker-compact-card--active {
 }
 
 .table-scroll-wrapper {
+  flex: 1;
+  min-height: 0;
   max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 底部统计栏 */
+.table-footer-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--app-border);
+  background-color: var(--app-bg-card);
+  border-radius: 0 0 6px 6px;
+  min-height: 36px;
+}
+
+/* 状态圆点 */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot--worker {
+  background-color: #18a058;
+}
+.status-dot--pages {
+  background-color: #2080f0;
 }
 
 .card-grid-scroll {
