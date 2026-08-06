@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.0] - 2026-08-06
+
+### 🚀 新特性
+
+- **Zone 管理（创建/删除）**：DNS 管理页面新增批量创建和删除 Zone 功能。支持 textarea 每行一个域名批量添加，选择目标账户和 Zone 类型（Full/Partial）；域名列表支持 checkbox 多选后批量删除，二次确认防误操作。创建成功后展示 Cloudflare 分配的 NS 信息，支持一键复制。
+- **Zone 设置管理**：新增 Zone 级别设置面板，支持查看和修改 SSL/TLS 模式、Always HTTPS、自动 HTTPS 重写、安全等级、Auto Minify、Brotli 压缩、0-RTT 等设置项。
+- **Zone 缓存管理**：支持清除 Zone 全部缓存或按 URL 清除缓存，可查看和修改缓存级别、浏览器缓存 TTL、开发模式。
+- **Zone 状态管理**：支持在 CF Manager 中暂停/激活 Zone，暂停前二次确认警告。
+- **DNS View UI 重构**：DNS 管理页面全面重构——新增账户过滤器（默认选上次使用账户，localStorage 记忆）、域名搜索框、Zone 状态指示器（彩色圆点）、按账户分组折叠列表、DNS 记录分页、删除二次确认、MX 记录优先级字段、表单验证、错误处理、加载/空状态、暗色模式修复。
+
+### 🔧 优化
+
+- **Worker KV 缓存**：Worker 端 `getAllZones()` 新增 KV 缓存（5 分钟 TTL），与 Backend 的 NodeCache 对齐，减少全量查询时的 CF API 调用。
+- **批量操作并发池**：Zone 批量创建/删除使用并发池（concurrency=3），避免 CF API 速率限制。
+- **缓存自动失效**：创建/删除 Zone 后自动清除 zones 缓存，确保列表数据实时性。
+
+### 🐛 Bug 修复
+
+- **修复 Backend getZoneSettings**：`getZoneSettings()` 之前调用 `cf.zones.get()` 返回 Zone 对象而非 Zone 设置，现修正为并行获取所有设置项（SSL、缓存、安全等），与 Worker 端返回格式统一。
+
 ## [1.5.1] - 2026-08-05
 
 ### 🐛 Bug 修复
