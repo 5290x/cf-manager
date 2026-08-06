@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { findAccountByDomain, getAllZones } from '../services/accountRouter';
 import { listDnsRecords, createDnsRecord, updateDnsRecord, deleteDnsRecord } from '../services/dnsService';
-import { getZoneSettings, updateProxyStatus } from '../services/zoneService';
+import { getZoneSettings, updateProxyStatus, createZone, deleteZone, updateZoneSettings, purgeZoneCache, setZoneStatus, invalidateZonesCache } from '../services/zoneService';
+import { getAccountById } from '../models/account';
 import { createAuditLog } from '../models/auditLog';
 import { isDemoAccountId } from './routeUtils';
 import { listRules, createRule, updateRule, deleteRule } from '../services/rulesetService';
@@ -73,6 +74,150 @@ router.patch('/domains/:domain/proxy', async (req: Request, res: Response, next:
     }
     const { account, zoneId } = await findAccountByDomain(req.params.domain as string);
     await updateProxyStatus(account, zoneId, req.body.record_id, req.body.proxied);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ============ Zone 管理 ============
+
+/** 批量并发处理辅助函数 */
+async function batchProcess<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency = 3
+): Promise<Array<{ item: T; result?: R; error?: string }>> {
+  const results: Array<{ item: T; result?: R; error?: string }> = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const settled = await Promise.allSettled(batch.map(fn));
+    results.push(...settled.map((s, j) => ({
+      item: batch[j],
+      result: s.status === 'fulfilled' ? (s as PromiseFulfilledResult<R>).value : undefined,
+      error: s.status === 'rejected' ? String((s as PromiseRejectedResult).reason) : undefined,
+    })));
+  }
+  return results;
+}
+
+// 批量创建 Zone
+router.post('/domains', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { names, account_id, type } = req.body;
+    if (!Array.isArray(names) || !names.length || !account_id) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'names (string[]) and account_id are required' } });
+      return;
+    }
+    const account = getAccountById(parseInt(account_id, 10));
+    if (!account) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found' } });
+      return;
+    }
+    if (isDemoAccountId(account.id)) {
+      res.status(403).json({ error: { code: 'DEMO_PROTECTED', message: '演示账户不可创建 Zone' } });
+      return;
+    }
+    const zoneType = type === 'partial' ? 'partial' : 'full';
+
+    const results = await batchProcess(
+      names as string[],
+      (name) => createZone(account, name.trim(), zoneType as 'full' | 'partial')
+    );
+
+    const formatted = results.map(r => ({
+      name: r.item,
+      success: !r.error,
+      ...(r.result ? { zone_id: r.result.zone_id, name_servers: r.result.name_servers } : {}),
+      ...(r.error ? { error: r.error } : {}),
+    }));
+
+    invalidateZonesCache();
+    createAuditLog(account.id, 'batch_create_zone', `accounts/${account_id}`, `created ${formatted.filter(r => r.success).length}/${names.length} zones: ${names.join(', ')}`, 'success');
+
+    res.status(201).json({
+      total: names.length,
+      succeeded: formatted.filter(r => r.success).length,
+      failed: formatted.filter(r => !r.success).length,
+      results: formatted,
+    });
+  } catch (err) { next(err); }
+});
+
+// 批量删除 Zone
+router.delete('/domains', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { domains } = req.body;
+    if (!Array.isArray(domains) || !domains.length) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'domains (string[]) is required' } });
+      return;
+    }
+
+    const results = await batchProcess(
+      domains as string[],
+      async (domain) => {
+        const { account, zoneId } = await findAccountByDomain(domain);
+        if (isDemoAccountId(account.id)) {
+          throw new Error('DEMO_PROTECTED: 演示账户不可删除 Zone');
+        }
+        await deleteZone(account, zoneId);
+        return { domain, account };
+      }
+    );
+
+    const formatted = results.map(r => ({
+      name: r.item,
+      success: !r.error,
+      ...(r.error ? { error: r.error } : {}),
+    }));
+
+    invalidateZonesCache();
+    const succeeded = results.filter(r => !r.error);
+    if (succeeded.length > 0) {
+      const firstAccount = succeeded[0].result!.account;
+      createAuditLog(firstAccount.id, 'batch_delete_zone', 'multiple', `deleted ${succeeded.length}/${domains.length} zones: ${domains.join(', ')}`, 'success');
+    }
+
+    res.json({
+      total: domains.length,
+      succeeded: formatted.filter(r => r.success).length,
+      failed: formatted.filter(r => !r.success).length,
+      results: formatted,
+    });
+  } catch (err) { next(err); }
+});
+
+// 更新 Zone 设置
+router.patch('/domains/:domain/settings', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const domain = req.params.domain as string;
+    const { account, zoneId } = await findAccountByDomain(domain);
+    const result = await updateZoneSettings(account, zoneId, req.body);
+    createAuditLog(account.id, 'update_zone_settings', domain, `updated: ${result.updated.join(', ') || 'none'}${result.failed.length ? `, failed: ${result.failed.join(', ')}` : ''}`, 'success');
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// 清除 Zone 缓存
+router.post('/domains/:domain/purge-cache', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const domain = req.params.domain as string;
+    const { account, zoneId } = await findAccountByDomain(domain);
+    const result = await purgeZoneCache(account, zoneId, req.body);
+    createAuditLog(account.id, 'purge_cache', domain, req.body.purge_everything ? 'purge_everything' : `purge ${(req.body.files || []).length} URLs`, 'success');
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// 暂停/激活 Zone
+router.patch('/domains/:domain/status', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const domain = req.params.domain as string;
+    const { account, zoneId } = await findAccountByDomain(domain);
+    if (typeof req.body.paused !== 'boolean') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'paused (boolean) is required' } });
+      return;
+    }
+    await setZoneStatus(account, zoneId, req.body.paused);
+    createAuditLog(account.id, 'update_zone_status', domain, `paused=${req.body.paused}`, 'success');
     res.json({ success: true });
   } catch (err) { next(err); }
 });
