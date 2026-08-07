@@ -4,58 +4,7 @@
     <div ref="chatContainer" style="flex: 1; overflow-y: auto; padding: 20px;">
       <!-- 欢迎页 -->
       <div v-if="messages.length === 0" style="text-align: center; padding: 40px 20px 40px;">
-        <!-- AI 用量统计 (compact) -->
-        <div class="card-grid-scroll" style="width: 100%">
-        <n-grid v-if="usageData.length > 0" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="width: 100%; margin-bottom: 20px; text-align: left;">
-          <n-gi v-for="u in usageData" :key="u.accountId">
-            <n-popover trigger="click" placement="bottom" style="display: block; width: 100%;">
-              <template #trigger>
-                <div class="ai-compact-card">
-                  <span class="ai-compact-card__name" :title="u.accountName">{{ u.accountName }}</span>
-                  <n-progress
-                    type="line"
-                    :percentage="Math.min(u.totalNeurons / 100, 100)"
-                    :color="u.totalNeurons > 8000 ? '#e03050' : '#2080f0'"
-                    :rail-color="'#e8e8e8'"
-                    :height="6"
-                    :show-indicator="false"
-                    :style="{ flex: '1 1 0', minWidth: '24px', overflow: 'hidden' }"
-                  />
-                  <span class="ai-compact-card__metric">{{ u.totalNeurons.toLocaleString() }}</span>
-                </div>
-              </template>
-              <div style="min-width: 260px; padding: 4px 0;">
-                <div style="font-weight: bold; margin-bottom: 10px;">{{ u.accountName }}</div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
-                  <span>神经元总量</span>
-                  <span><b style="color: #2080f0;">{{ u.totalNeurons.toLocaleString() }}</b> / 10,000</span>
-                </div>
-                <n-progress
-                  type="line"
-                  :percentage="Math.min(u.totalNeurons / 100, 100)"
-                  :color="u.totalNeurons > 8000 ? '#e03050' : '#2080f0'"
-                  :rail-color="'#e8e8e8'"
-                  :height="12"
-                  :show-indicator="false"
-                  style="margin-bottom: 10px;"
-                />
-                <div v-if="u.models.length > 0" style="border-top: 1px solid var(--app-border-light); padding-top: 8px;">
-                  <div style="font-size: 12px; color: var(--app-text-muted); margin-bottom: 6px;">模型明细 ({{ u.models.length }})</div>
-                  <div
-                    v-for="m in u.models"
-                    :key="m.modelId"
-                    style="display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; color: var(--app-text-secondary); border-bottom: 1px solid var(--app-border-light);"
-                  >
-                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.modelId.replace(/^@cf\//, '') }}</span>
-                    <span style="flex-shrink: 0; margin-left: 12px;">{{ m.neurons.toLocaleString() }} / {{ m.requests.toLocaleString() }} 请求</span>
-                  </div>
-                </div>
-              </div>
-            </n-popover>
-          </n-gi>
-        </n-grid>
-        </div>
-        <h1 style="font-size: 32px; margin-bottom: 36px; color: var(--app-text-heading); font-weight: 600;">有什么我能帮你的吗？</h1>
+        <h1 style="font-size: 32px; margin-bottom: 36px; color: var(--app-text-heading); font-weight: 600;">{{ t('ai.welcome') }}</h1>
         <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; max-width: 820px; margin: 0 auto;">
           <div
             v-for="s in suggestions"
@@ -87,7 +36,7 @@
                 @click="msg.reasoningExpanded = !msg.reasoningExpanded"
               >
                 <span style="font-size: 12px; transition: transform 0.2s; display: inline-block;" :style="{ transform: msg.reasoningExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }">▶</span>
-                 思考过程{{ msg.thinkingDone ? '' : '（进行中...）' }}
+                 {{ t('ai.thinkingProcess') }}{{ msg.thinkingDone ? '' : t('ai.thinkingInProgress') }}
               </div>
               <div v-show="msg.reasoningExpanded" style="white-space: pre-wrap; color: var(--app-text-tertiary); font-size: 13px; background: var(--app-bg-tertiary); padding: 10px; border-radius: 6px; margin-top: 6px;">{{ msg.reasoning }}</div>
             </div>
@@ -95,7 +44,7 @@
             <div style="white-space: pre-wrap;">{{ msg.content }}</div>
             <!-- 加载中 -->
             <div v-if="msg.loading" style="color: var(--app-text-disabled);">
-              <n-spin size="small" /> 思考中...
+              <n-spin size="small" /> {{ t('ai.thinking') }}
             </div>
           </div>
         </div>
@@ -109,14 +58,14 @@
         <n-select
           v-model:value="selectedAccount"
           :options="accountOptions"
-          placeholder="账户"
+          placeholder=""
           class="ai-select-account"
           size="small"
         />
         <n-select
           v-model:value="selectedModel"
           :options="modelOptions"
-          placeholder="选择模型"
+          :placeholder="t('ai.selectModel')"
           style="flex: 1; min-width: 0;"
           :loading="modelsLoading"
           size="small"
@@ -124,7 +73,7 @@
           @update:value="onModelChange"
         />
         <n-button v-if="messages.length > 0" size="small" quaternary @click="messages = []">
-          + 新对话
+          {{ t('ai.newChat') }}
         </n-button>
       </div>
       <!-- 输入框 -->
@@ -132,34 +81,26 @@
         <n-input
           v-model:value="prompt"
           type="textarea"
-          placeholder="发消息..."
+          :placeholder="t('ai.sendMessage')"
           :rows="2"
           :disabled="inferring"
           @keydown.enter.exact.prevent="sendMessage"
           style="flex: 1;"
         />
         <n-button type="primary" @click="sendMessage" :loading="inferring" :disabled="!selectedModel || !prompt.trim()" style="height: 40px;">
-          发送
+          {{ t('ai.send') }}
         </n-button>
-        <n-button @click="stopInference" :disabled="!inferring" style="height: 40px;">停止</n-button>
+        <n-button @click="stopInference" :disabled="!inferring" style="height: 40px;">{{ t('ai.stop') }}</n-button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted, nextTick } from 'vue';
+import { ref, reactive, watch, onMounted, nextTick, computed } from 'vue';
 import { useMessage } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { accountsApi } from '../api/accounts';
-
-interface AiUsageItem {
-  accountId: string;
-  accountName: string;
-  totalNeurons: number;
-  models: Array<{ modelId: string; neurons: number; requests: number }>;
-  expanded?: boolean;
-}
-const usageData = ref<AiUsageItem[]>([]);
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -170,6 +111,7 @@ interface ChatMessage {
   loading?: boolean;
 }
 
+const { t } = useI18n();
 const message = useMessage();
 const selectedAccount = ref<string>('auto'); // 'auto' = 自动分配
 const accountOptions = ref<{ label: string; value: string }[]>([]);
@@ -187,14 +129,14 @@ function waitFrame(): Promise<void> {
   return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
-const suggestions = [
-  '今天天气怎么样？',
-  '帮我写一封请假邮件',
-  '推荐几部好看的电影',
-  '如何快速学习英语？',
-  '帮我制定一个健身计划',
-  '有什么好吃的家常菜推荐吗？',
-];
+const suggestions = computed(() => [
+  t('ai.suggestions.s1'),
+  t('ai.suggestions.s2'),
+  t('ai.suggestions.s3'),
+  t('ai.suggestions.s4'),
+  t('ai.suggestions.s5'),
+  t('ai.suggestions.s6'),
+]);
 
 async function fetchAccounts() {
   try {
@@ -204,11 +146,11 @@ async function fetchAccounts() {
       value: a.account_id || String(a.id), // Use account_id (Cloudflare ID) for AI requests
     }));
     accountOptions.value = [
-      { label: '🤖 自动分配', value: 'auto' },
+      { label: '🤖 ' + t('ai.autoAssign'), value: 'auto' },
       ...accounts,
     ];
   } catch {
-    accountOptions.value = [{ label: '🤖 自动分配', value: 'auto' }];
+    accountOptions.value = [{ label: '🤖 ' + t('ai.autoAssign'), value: 'auto' }];
   }
 }
 
@@ -350,13 +292,13 @@ async function sendMessage() {
 
     aiMsg.loading = false;
     if (!aiMsg.content && !aiMsg.reasoning) {
-      aiMsg.content = '（模型返回了空响应）';
+      aiMsg.content = t('ai.emptyResponse');
     }
   } catch (e: any) {
     if (e.name !== 'AbortError') {
-      aiMsg.content = `错误：${e?.errorMessage || e?.message || '推理失败'}`;
+      aiMsg.content = t('ai.error', { error: e?.errorMessage || e?.message || t('ai.inferenceFailed') });
     } else {
-      aiMsg.content += '\n\n（已停止）';
+      aiMsg.content += '\n\n' + t('ai.stopped');
     }
     aiMsg.loading = false;
   } finally {
@@ -381,36 +323,9 @@ function scrollToBottom() {
   });
 }
 
-async function fetchUsage() {
-  try {
-    const token = localStorage.getItem('api_token');
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    
-    const response = await fetch('/api/ai/usage', { headers });
-    
-    if (!response.ok) throw new Error(`Failed to fetch usage: ${response.status}`);
-    
-    const result = await response.json();
-    
-    // Handle both wrapped { success, data } and unwrapped array formats
-    const data = result.data || result;
-    // Ensure totalNeurons always has a default value (0 if missing)
-    usageData.value = (data || []).map((d: any) => ({ 
-      ...d, 
-      totalNeurons: d.totalNeurons || 0,
-      expanded: false 
-    }));
-  } catch (error) {
-    console.error('[AiView] Failed to fetch usage:', error);
-    usageData.value = [];
-  }
-}
-
 onMounted(() => {
   fetchAccounts();
   fetchModels();
-  fetchUsage();
 });
 
 watch(selectedAccount, () => {
@@ -422,7 +337,9 @@ watch(selectedAccount, () => {
 .ai-view-root {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .ai-input-bar {
@@ -485,9 +402,6 @@ watch(selectedAccount, () => {
 }
 
 @media (max-width: 768px) {
-  .ai-view-root {
-    height: calc(100vh - 80px);
-  }
   .ai-input-bar {
     padding: 8px 12px;
   }

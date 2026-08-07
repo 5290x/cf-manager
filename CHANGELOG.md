@@ -1,9 +1,32 @@
 # Changelog
 
-## [1.6.0] - 2026-08-06
+## [2.0.0] - 2026-08-07
 
 ### 🚀 新特性
 
+- **AI 图片生成（文生图/图生图）**：新增 AI 图片生成功能，支持 Cloudflare Workers AI 的 Text-to-Image 和 Image-to-Image 模型（Flux-1-Schnell、Stable Diffusion XL 等）。
+  - 新增 `POST /v1/images/generations` 和 `POST /api/v1/images/generations` 端点（OpenAI 兼容格式），支持账户轮换、神经元消耗追踪、审计日志。
+  - 前端新增「AI 绘图」页面，支持文生图/图生图模式切换、参考图上传、高级参数（宽高/步数/引导强度/反向提示词）、图片预览/下载/复用、历史记录画廊。
+  - 新增图片生成模型定价（`perImage` 字段）和 `estimateImageNeurons` 估算函数。
+  - 双后端（Express + Hono）对称实现。
+- **AI 语音合成（TTS）**：新增文字转语音功能，支持 Cloudflare Workers AI 的 Deepgram Aura 系列模型。
+  - 新增 `POST /v1/audio/speech` 和 `POST /api/v1/audio/speech` 端点（OpenAI 兼容格式），支持账户轮换、神经元消耗追踪。
+  - 前端新增 AI 语音页面，支持模型/语音选择、文本输入、音频播放/下载/复用/删除。
+  - 新增 TTS 模型定价（`perKChar` 字段）和 `estimateTtsNeurons` 估算函数。
+  - 双后端（Express + Hono）对称实现，统一返回 JSON base64 音频格式。
+- **AI 翻译（Translation）**：新增文本翻译功能，支持 Cloudflare Workers AI 的 M2M100 系列模型。
+  - 新增 `POST /v1/translations` 和 `POST /api/v1/translations` 端点（OpenAI 格式扩展），支持账户轮换、神经元消耗追踪、审计日志。
+  - 前端新增 AI 翻译页面，支持模型选择、源语言/目标语言选择、文本输入、翻译结果显示、复制、神经元消耗显示。
+  - 新增翻译模型定价和 `estimateTranslationNeurons` 估算函数。
+  - 双后端（Express + Hono）对称实现。
+- **AI 功能整合**：将 AI 对话、绘图、语音、翻译、统计合并为统一菜单，顶部 Tab 切换。
+  - 新增 `AiUnifiedView.vue` 统一视图，包含统计、对话、绘图、语音、翻译五个 Tab。
+  - AI 统计作为首个 Tab，展示账户维度的用量汇总。
+  - 路由 `/ai` 指向统一视图，移除独立的 `/ai-image` 和 `/ai-audio` 路由。
+  - 导航菜单精简，AI 相关功能整合为单入口。
+- **前端国际化（i18n）**：引入 vue-i18n，支持中文（zh-CN）与英文（en）双语界面。
+  - 新增 zh-CN / en 两个语言包（各 1052 个词条），自动检测浏览器语言并持久化到 localStorage。
+  - 全站视图与组件的硬编码文案统一替换为 `t()` 国际化调用。
 - **Zone 管理（创建/删除）**：DNS 管理页面新增批量创建和删除 Zone 功能。支持 textarea 每行一个域名批量添加，选择目标账户和 Zone 类型（Full/Partial）；域名列表支持 checkbox 多选后批量删除，二次确认防误操作。创建成功后展示 Cloudflare 分配的 NS 信息，支持一键复制。
 - **Zone 设置管理**：新增 Zone 级别设置面板，支持查看和修改 SSL/TLS 模式、Always HTTPS、自动 HTTPS 重写、安全等级、Auto Minify、Brotli 压缩、0-RTT 等设置项。
 - **Zone 缓存管理**：支持清除 Zone 全部缓存或按 URL 清除缓存，可查看和修改缓存级别、浏览器缓存 TTL、开发模式。
@@ -12,13 +35,37 @@
 
 ### 🔧 优化
 
+- **Worker 端点补全**：Worker 补充 `GET /accounts/:id/credentials`（查看凭证）和 `POST /v1/browser/render` + `GET /v1/browser/status`（外部浏览器渲染）端点，与 backend 对称。
+- **菜单优化**：「AI 推理」→「AI 工作台」重命名；「隧道/回源」菜单移至「AI 工作台」上方。
+- **模型能力检测**：基于 CF 官方文档精确识别模型支持的生成模式——Flux 2 支持 image editing（图生图），Flux 1 仅文生图，SDXL 支持图生图。模式切换按钮仅在模型同时支持两种模式时显示。
+- **图生图默认强度**：默认 `strength` 从 1.0 调整为 0.6，保留更多原图特征。
+- **生成中 UX 改进**：生成图片时不再全屏遮罩，改为顶部加载条，用户可同时查看已有图片。
+- **复用功能改进**：点击"复用"时自动切换到图生图模式并使用生成的图片作为参考图（需模型支持）。
+- **用量显示**：每张生成的图片返回并显示神经元消耗（⚡ neurons 徽章）。
+- **组件重命名**：`AiView.vue` 重命名为 `AiChatView.vue`，更清晰地表达其职责。
+- **Workers/Pages 管理 UI 改进**：暗色模式适配（移除硬编码浅色、改用半透明蓝）；间距统一 16px；账户卡片高度/圆角优化；用量详情 Popover 改为 hover 触发；删除后只刷新当前账户；Worker/Pages 状态文案统一（deployed/enabled/active 均显示「活跃」）；表格撑满剩余屏幕高度；底部统计栏显示总数/Worker 数/Pages 数/当前账户名；修改时间缺失时回退显示创建时间。
 - **Worker KV 缓存**：Worker 端 `getAllZones()` 新增 KV 缓存（5 分钟 TTL），与 Backend 的 NodeCache 对齐，减少全量查询时的 CF API 调用。
 - **批量操作并发池**：Zone 批量创建/删除使用并发池（concurrency=3），避免 CF API 速率限制。
 - **缓存自动失效**：创建/删除 Zone 后自动清除 zones 缓存，确保列表数据实时性。
 
-### 🐛 Bug 修复
+### 🛠 Workers & Pages 部署增强
 
-- **修复 Backend getZoneSettings**：`getZoneSettings()` 之前调用 `cf.zones.get()` 返回 Zone 对象而非 Zone 设置，现修正为并行获取所有设置项（SSL、缓存、安全等），与 Worker 端返回格式统一。
+#### 新增
+- Workers & Pages 手动部署支持环境变量（明文/机密）与绑定（KV/D1/R2/AI/DO/Service/Queue），Worker 与 Pages 双端可用
+- 重部署可只更新配置：打开部署对话框预填当前配置；secrets 变更走独立 API 不重传代码，vars/bindings 变更复用现有代码重传
+- 单/批量部署入口合并：账户多选（选 1 = 单个部署），失败账户可单独重试
+- 新增配置读取端点：GET /workers/:accountId/workers/:name/config、GET /workers/:accountId/pages/:name/config
+
+#### 变更
+- 删除单账户部署端点（POST /:accountId/workers、POST /:accountId/pages/deploy、deployFromUrl），统一走 batch-deploy / batch-deploy-pages
+- 批量部署增加受控并发（concurrency=3）
+
+#### 说明
+- 重部署 diff：仅 secrets 变化时只调 secrets API 不重传代码；vars/bindings 变化时后端复用现有代码重传，用户无需再上传文件
+
+### 📝 文档
+
+- **项目分析报告**：新增 `docs/cf-manager-analysis.md`，提供项目架构、代码结构、构建部署流程的完整分析文档。
 
 ## [1.5.1] - 2026-08-05
 

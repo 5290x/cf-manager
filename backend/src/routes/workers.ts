@@ -30,7 +30,9 @@ import {
   // Usage
   getWorkersUsageToday,
 } from '../services/workerService';
-import { deployPages } from '../services/deploy/pagesDeploy';
+import { varsToBindings, resolveManualBindings, buildPagesConfigsFromInput, ManualVarInput, ManualBindingInput } from '../services/bindings';
+import { getWorkerConfig, getPagesConfig, applyWorkerConfigDiff } from '../services/workerService';
+import { deployPages as deployPagesService } from '../services/deploy/pagesDeploy';
 import { getAllZones } from '../services/accountRouter';
 
 // 手动/批量 Worker 部署：script 可为单个 .js（单模块）或 .zip（多模块包）+ 可选 assets（zip 较大放宽到 50MB，与 Pages 一致）
@@ -54,6 +56,25 @@ function toAssetsOptions(file?: Express.Multer.File): { assets: WorkerAssetsInpu
     assets: { source: { kind: isZip ? 'zip' : 'raw', url: file.originalname } },
     assetsBuffer: file.buffer,
   };
+}
+
+// 从 multipart 表单中解析 JSON 字符串字段；空/非法返回空数组
+function parseJsonField(raw: unknown, field: string): any {
+  if (raw === undefined || raw === null || raw === '') return [];
+  if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return []; } }
+  return raw;
+}
+
+// 受控并发（对齐 worker 端 batch delete 的 CONCURRENCY=3 模式）
+async function mapConcurrent<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let idx = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (idx < items.length) {
+      const current = items[idx++];
+      await fn(current);
+    }
+  });
+  await Promise.all(workers);
 }
 
 // 演示账户：拦截所有销毁/删除类操作（DELETE 等）
@@ -93,36 +114,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// ============ Deploy / Delete ============
-router.post('/:accountId/workers', uploadWorkerAssets.fields([{ name: 'script' }, { name: 'assets' }]), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const account = getAccountOr404(req, res);
-    if (!account) return;
-    const name = req.body.name as string;
-    if (!name) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Worker name is required' } }); return; }
-    const files = req.files as { script?: Express.Multer.File[]; assets?: Express.Multer.File[] };
-    const scriptFile = files.script?.[0];
-    const assetsFile = files.assets?.[0];
-    const assetsOpts = toAssetsOptions(assetsFile);
-    // Support both file upload and URL
-    if (req.body.url) {
-      const { script } = await deployWorkerFromUrl(account, name, req.body.url, assetsOpts);
-      createAuditLog(account.id, 'deploy_worker', name, `from_url=${req.body.url}${assetsOpts ? ',with_assets' : ''}`, 'success');
-      res.status(201).json(script);
-    } else if (scriptFile) {
-      const isZip = scriptFile.originalname.toLowerCase().endsWith('.zip');
-      const deployOpts: any = { ...assetsOpts, mainModule: req.body.mainModule || undefined };
-      const { script } = isZip
-        ? await deployWorker(account, name, '', { ...deployOpts, packageZip: scriptFile.buffer })
-        : await deployWorker(account, name, scriptFile.buffer.toString('utf-8'), deployOpts);
-      createAuditLog(account.id, 'deploy_worker', name, `file_size=${scriptFile.size}${assetsOpts ? ',with_assets' : ''}`, 'success');
-      res.status(201).json(script);
-    } else {
-      res.status(400).json({ error: { code: 'NO_FILE', message: 'Script file or URL is required' } });
-    }
-  } catch (err) { next(err); }
-});
-
+// ============ Delete ============
 router.delete('/:accountId/workers/:name', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const account = getAccountOr404(req, res);
@@ -153,61 +145,6 @@ router.get('/:accountId/workers/:name/logs', async (req: Request, res: Response,
     res.json(logs);
   } catch (err) { next(err); }
 });
-
-router.post('/:accountId/pages/deploy', (req: Request, res: Response, next: NextFunction) => {
-  appLogger.info(`[Pages Deploy] Multer starting for ${req.url}`);
-  uploadPages.array('files', 100)(req, res, (multerErr: any) => {
-    if (multerErr) {
-      appLogger.error(`[Pages Deploy] Multer error: ${multerErr.message} ${multerErr.code}`);
-      const err = new Error(`File upload error: ${multerErr.message}`);
-      (err as any).statusCode = 400;
-      return next(err);
-    }
-    appLogger.info(`[Pages Deploy] Multer done, files: ${(req.files as any[])?.length || 0}`);
-    handlePagesDeploy(req, res, next);
-  });
-});
-
-async function handlePagesDeploy(req: Request, res: Response, next: NextFunction) {
-  try {
-    const account = getAccountOr404(req, res);
-    if (!account) return;
-    const name = req.body.name as string;
-    if (!name) { res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Project name is required' } }); return; }
-    if (!validatePagesProjectName(name)) {
-      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '项目名只能包含小写字母、数字和连字符，且以字母或数字开头' } }); return;
-    }
-    
-    const uploadedFiles = req.files as Express.Multer.File[] | undefined;
-    let files: Array<{ path: string; buffer: Buffer }> = [];
-    
-    // Check if it's a single zip file
-    if (uploadedFiles && uploadedFiles.length > 0) {
-      appLogger.info(`[Pages Deploy Route] Received ${uploadedFiles.length} files: ${uploadedFiles.map(f => f.originalname).join(', ')}`);
-      if (uploadedFiles.length === 1 && uploadedFiles[0].originalname?.toLowerCase().endsWith('.zip')) {
-        files = extractZipFiles(uploadedFiles[0].buffer);
-        appLogger.info(`[Pages Deploy Route] ZIP extracted: ${files.length} files`);
-      } else {
-        files = uploadedFiles.map(f => ({
-          path: (f as any).originalname || f.fieldname,
-          buffer: f.buffer,
-        }));
-      }
-    }
-    
-    const skipCreateProject = req.body.skipCreateProject === 'true' || req.body.skipCreateProject === true;
-    const deploymentConfigs = { branch: 'main' };
-    const result = await deployPages(account, name, files, { skipCreateProject, ...deploymentConfigs });
-    createAuditLog(account.id, 'deploy_pages', name, files.length > 0 ? `${files.length} files` : 'empty project', 'success');
-    appLogger.info(`[Pages Deploy Route] Success for ${name}`);
-    // 剥离 CF API 返回的 success 字段，避免与 responseWrapper 中间件冲突导致双重包装
-    const { success: _cfSuccess, ...deploymentData } = result;
-    res.status(201).json(deploymentData);
-  } catch (err: any) {
-    appLogger.error(`[Pages Deploy Route] Error: ${err.message} ${err.statusCode || 500}`);
-    next(err);
-  }
-}
 
 // ============ Secrets ============
 router.get('/:accountId/workers/:name/secrets', async (req: Request, res: Response, next: NextFunction) => {
@@ -557,6 +494,17 @@ router.get('/summary', async (_req: Request, res: Response, next: NextFunction) 
   } catch (err) { next(err); }
 });
 
+// ============ Pages Config (重部署预填) ============
+router.get('/:accountId/pages/:name/config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const account = getAccountOr404(req, res);
+    if (!account) return;
+    res.set('Cache-Control', 'no-store'); // 防浏览器缓存旧配置
+    const config = await getPagesConfig(account, req.params.name as string);
+    res.json(config);
+  } catch (err) { next(err); }
+});
+
 // ============ Workers Usage (GraphQL) ============
 router.get('/usage', async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -584,32 +532,53 @@ router.post('/batch-deploy', uploadWorkerAssets.fields([{ name: 'script' }, { na
     const scriptContent = scriptFile ? scriptFile.buffer.toString('utf-8') : null;
     const isZip = !!scriptFile && scriptFile.originalname.toLowerCase().endsWith('.zip');
     const mainModule = req.body.mainModule || undefined;
-    const baseOpts: any = { ...assetsOpts, mainModule };
-    const parsedTargets = typeof targets === 'string' ? JSON.parse(targets) : targets;
+    // 版本化 worker 下 PUT 只创建版本不部署，必须显式创建 deployment 才会上线
+    const baseOpts: any = { ...assetsOpts, mainModule, createDeployment: true };
+    const parsedTargets = parseJsonField(req.body.targets, 'targets');
     if (!Array.isArray(parsedTargets) || parsedTargets.length === 0) {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'targets must be a non-empty array' } }); return;
     }
-    if (!scriptContent && !scriptUrl) {
+    const vars: ManualVarInput[] = parseJsonField(req.body.vars, 'vars');
+    const bindingsInput: ManualBindingInput[] = parseJsonField(req.body.bindings, 'bindings');
+    const isRedeploy = req.body.isRedeploy === 'true' || req.body.isRedeploy === true;
+    // 重部署可不带代码（只更新配置）；新建部署必须提供代码源
+    if (!isRedeploy && !scriptContent && !scriptUrl && !isZip) {
       res.status(400).json({ error: { code: 'NO_FILE', message: 'Script file or URL is required' } }); return;
     }
+    console.log(`[DBG] batch-deploy targets=${parsedTargets.length} isRedeploy=${isRedeploy} isZip=${isZip} vars=${JSON.stringify(vars.map((v: any) => `${v.name}:${v.secret ? 'S' : 'P'}${v.keep ? '(keep)' : ''}`))} bindings=${JSON.stringify(bindingsInput.map((b: any) => b.type + ':' + b.name))}`);
+
     const results: Array<{ accountId: number; workerName: string; success: boolean; error?: string }> = [];
-    await Promise.all(parsedTargets.map(async (t: { accountId: number; workerName: string }) => {
+    await mapConcurrent(parsedTargets, 3, async (t: { accountId: number; workerName: string }) => {
       try {
         const account = getAccountById(t.accountId);
         if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); return; }
+        const resolved = await resolveManualBindings(account, bindingsInput);
+        const allBindings = [...varsToBindings(vars), ...resolved];
+
+        if (isRedeploy && !isZip) {
+          // 重部署未更换代码：走 diff（secrets 独立 API 保持 / 代码复用重传）
+          await applyWorkerConfigDiff(account, t.workerName, {
+            vars, bindings: allBindings,
+            scriptContent: scriptContent ?? undefined,
+          });
+          createAuditLog(account.id, 'batch_deploy', t.workerName, 'redeploy_config', 'success');
+          results.push({ ...t, success: true });
+          return;
+        }
+
         if (scriptUrl) {
-          await deployWorkerFromUrl(account, t.workerName, scriptUrl, baseOpts);
+          await deployWorkerFromUrl(account, t.workerName, scriptUrl, { ...baseOpts, bindings: allBindings });
         } else if (isZip) {
-          await deployWorker(account, t.workerName, '', { ...baseOpts, packageZip: scriptFile!.buffer });
+          await deployWorker(account, t.workerName, '', { ...baseOpts, packageZip: scriptFile!.buffer, bindings: allBindings });
         } else {
-          await deployWorker(account, t.workerName, scriptContent!, baseOpts);
+          await deployWorker(account, t.workerName, scriptContent!, { ...baseOpts, bindings: allBindings });
         }
         createAuditLog(account.id, 'batch_deploy', t.workerName, null, 'success');
         results.push({ ...t, success: true });
       } catch (err: any) {
         results.push({ ...t, success: false, error: err.message });
       }
-    }));
+    });
     res.json(results);
   } catch (err) { next(err); }
 });
@@ -617,36 +586,70 @@ router.post('/batch-deploy', uploadWorkerAssets.fields([{ name: 'script' }, { na
 // ============ Batch Deploy Pages ============
 router.post('/batch-deploy-pages', uploadPages.single('zipFile'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { targets } = req.body;
-    const parsedTargets = typeof targets === 'string' ? JSON.parse(targets) : targets;
+    const parsedTargets = parseJsonField(req.body.targets, 'targets');
     if (!Array.isArray(parsedTargets) || parsedTargets.length === 0) {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'targets must be a non-empty array' } }); return;
     }
-    if (!req.file) {
-      res.status(400).json({ error: { code: 'NO_FILE', message: 'Zip file is required' } }); return;
+    const vars: ManualVarInput[] = parseJsonField(req.body.vars, 'vars');
+    const bindingsInput: ManualBindingInput[] = parseJsonField(req.body.bindings, 'bindings');
+    const isRedeploy = req.body.isRedeploy === 'true' || req.body.isRedeploy === true;
+    let files: Array<{ path: string; buffer: Buffer }> = [];
+    if (req.file) {
+      files = extractZipFiles(req.file.buffer);
+      if (files.length === 0) { res.status(400).json({ error: { code: 'EMPTY_ZIP', message: 'Zip file contains no files' } }); return; }
     }
-    const files = extractZipFiles(req.file.buffer);
-
-    if (files.length === 0) {
-      res.status(400).json({ error: { code: 'EMPTY_ZIP', message: 'Zip file contains no files' } }); return;
+    if (!isRedeploy && !req.file) {
+      res.status(400).json({ error: { code: 'NO_FILE', message: 'Zip file is required for new deploy' } }); return;
     }
 
     const results: Array<{ accountId: number; workerName: string; success: boolean; error?: string }> = [];
-    for (const t of parsedTargets) {
+    await mapConcurrent(parsedTargets, 3, async (t: { accountId: number; workerName: string }) => {
       try {
         const account = getAccountById(t.accountId);
-        if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); continue; }
-        if (!validatePagesProjectName(t.workerName)) {
-          results.push({ ...t, success: false, error: '项目名只能包含小写字母、数字和连字符' }); continue;
+        if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); return; }
+        if (!validatePagesProjectName(t.workerName)) { results.push({ ...t, success: false, error: '项目名只能包含小写字母、数字和连字符' }); return; }
+
+        if (isRedeploy && !req.file) {
+          // 只更新配置：PATCH project deployment_configs
+          const resolved = await resolveManualBindings(account, bindingsInput);
+          const configs = buildPagesConfigsFromInput(vars, resolved);
+          if (configs) await updatePagesBindings(account, t.workerName, configs);
+          createAuditLog(account.id, 'redeploy_pages_config', t.workerName, null, 'success');
+          results.push({ ...t, success: true });
+          return;
         }
-        await deployPages(account, t.workerName, files);
+
+        const resolved = await resolveManualBindings(account, bindingsInput);
+        const configs = buildPagesConfigsFromInput(vars, resolved);
+        await deployPagesService(account, t.workerName, files, configs ? { deploymentConfigs: configs } : {});
         createAuditLog(account.id, 'batch_deploy_pages', t.workerName, `${files.length} files`, 'success');
         results.push({ ...t, success: true });
       } catch (err: any) {
         results.push({ ...t, success: false, error: err.message });
       }
-    }
+    });
     res.json(results);
+  } catch (err) { next(err); }
+});
+
+// ============ Config (重部署预填) ============
+router.get('/:accountId/workers/:name/config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const account = getAccountOr404(req, res);
+    if (!account) return;
+    res.set('Cache-Control', 'no-store'); // 防浏览器缓存旧配置（部署后重开预填必须拿到最新）
+    const config = await getWorkerConfig(account, req.params.name as string);
+    res.json(config);
+  } catch (err) { next(err); }
+});
+
+router.get('/:accountId/pages/:name/config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const account = getAccountOr404(req, res);
+    if (!account) return;
+    res.set('Cache-Control', 'no-store'); // 防浏览器缓存旧配置
+    const config = await getPagesConfig(account, req.params.name as string);
+    res.json(config);
   } catch (err) { next(err); }
 });
 

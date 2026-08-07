@@ -38,11 +38,13 @@ app.use('*', errorHandler);
 app.use('/v1/*', requestIdMiddleware);
 app.use('/v1/*', authMiddleware);
 app.route('/v1', openaiRouter);
+app.route('/v1/browser', browserRenderRouter);
 app.use('/v1/*', v1ErrorHandler);
 
 app.use('/api/v1/*', requestIdMiddleware);
 app.use('/api/v1/*', authMiddleware);
 app.route('/api/v1', openaiRouter);
+app.route('/api/v1/browser', browserRenderRouter);
 app.use('/api/v1/*', v1ErrorHandler);
 
 // Other API routes (with responseWrapper)

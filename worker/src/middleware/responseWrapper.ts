@@ -25,6 +25,10 @@ function isOpenAIFormat(body: any): boolean {
 export const responseWrapper = createMiddleware<{ Bindings: Env }>(async (c, next) => {
   await next();
 
+  // Skip wrapping for all OpenAI-compatible paths (/v1/*, /api/v1/*)
+  const reqPath = c.req.path;
+  if (reqPath.startsWith('/v1') || reqPath.startsWith('/api/v1')) return;
+
   const res = c.res;
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('application/json')) return;

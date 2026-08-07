@@ -1,5 +1,5 @@
 <template>
-  <n-config-provider :theme="theme">
+  <n-config-provider :theme="theme" :locale="naiveLocale" :date-locale="naiveDateLocale">
     <n-dialog-provider>
       <n-message-provider>
         <n-notification-provider>
@@ -11,12 +11,12 @@
 
             <!-- 登录界面 -->
             <div v-else-if="showLogin" style="display: flex; justify-content: center; align-items: center; height: 100vh; padding: 16px">
-              <n-card title="CF Manager" style="width: 400px; max-width: 100%">
+              <n-card :title="t('app.title')" style="width: 400px; max-width: 100%">
                 <n-form @submit.prevent="handleLogin">
-                  <n-form-item label="API Secret">
-                    <n-input v-model:value="loginSecret" type="password" placeholder="输入 API Secret" show-password-on="click" @keyup.enter="handleLogin" />
+                  <n-form-item :label="t('app.apiSecret')">
+                    <n-input v-model:value="loginSecret" type="password" :placeholder="t('app.enterApiSecret')" show-password-on="click" @keyup.enter="handleLogin" />
                   </n-form-item>
-                  <n-button type="primary" block :loading="loginLoading" @click="handleLogin">登录</n-button>
+                  <n-button type="primary" block :loading="loginLoading" @click="handleLogin">{{ t('app.login') }}</n-button>
                 </n-form>
               </n-card>
             </div>
@@ -35,10 +35,15 @@
                     <template #icon><n-icon :component="MenuOutline" /></template>
                   </n-button>
                   <n-space>
+                    <n-dropdown trigger="click" :options="languageOptions" @select="handleLanguageChange">
+                      <n-button quaternary circle>
+                        <template #icon><n-icon :component="LanguageOutline" /></template>
+                      </n-button>
+                    </n-dropdown>
                     <n-button quaternary circle @click="toggleTheme">
                       <template #icon><n-icon :component="isDark ? SunnyOutline : MoonOutline" /></template>
                     </n-button>
-                    <n-button v-if="isAuthenticated" quaternary size="small" @click="handleLogout">退出</n-button>
+                    <n-button v-if="isAuthenticated" quaternary size="small" @click="handleLogout">{{ t('app.logout') }}</n-button>
                   </n-space>
                 </n-layout-header>
                 <n-layout-content content-style="padding: 24px; height: 100%; box-sizing: border-box;" style="height: calc(100vh - 48px - 32px); overflow-y: auto">
@@ -68,6 +73,11 @@
                   <div class="fab-panel-header">
                     <span class="fab-panel-title">CF Manager</span>
                     <div class="fab-panel-actions">
+                      <n-dropdown trigger="click" :options="languageOptions" placement="bottom-end" @select="handleLanguageChange">
+                        <n-button circle size="small" quaternary>
+                          <template #icon><n-icon :component="LanguageOutline" :size="16" /></template>
+                        </n-button>
+                      </n-dropdown>
                       <n-button circle size="small" quaternary @click="toggleTheme">
                         <template #icon><n-icon :component="isDark ? SunnyOutline : MoonOutline" :size="16" /></template>
                       </n-button>
@@ -116,7 +126,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, h, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { darkTheme } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
+import { darkTheme, zhCN, dateZhCN, enUS, dateEnUS } from 'naive-ui';
 import type { Component } from 'vue';
 import { NIcon } from 'naive-ui';
 import {
@@ -124,11 +135,13 @@ import {
   SparklesOutline, ImageOutline, SettingsOutline,
   MenuOutline, SunnyOutline, MoonOutline, ServerOutline,
   CloseOutline, GridOutline, LogOutOutline, StorefrontOutline,
-  GitBranchOutline,
+  GitBranchOutline, LanguageOutline,
 } from '@vicons/ionicons5';
 import apiClient from './api/client';
 import { message as globalMessage, setDiscreteTheme } from './utils/discreteApi';
+import { saveLocale, type Locale } from './i18n';
 
+const { t, locale } = useI18n();
 const router = useRouter();
 const route = useRoute();
 const collapsed = ref(false);
@@ -137,6 +150,21 @@ const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 const isDark = ref(storedDark !== null ? storedDark === 'true' : prefersDark);
 const activeMenuKey = ref(route.name as string);
 const theme = computed(() => isDark.value ? darkTheme : null);
+
+// Naive UI locale
+const naiveLocale = computed(() => locale.value === 'zh-CN' ? zhCN : enUS);
+const naiveDateLocale = computed(() => locale.value === 'zh-CN' ? dateZhCN : dateEnUS);
+
+// Language options
+const languageOptions = computed(() => [
+  { label: '中文', key: 'zh-CN' },
+  { label: 'English', key: 'en' },
+]);
+
+function handleLanguageChange(key: string) {
+  locale.value = key;
+  saveLocale(key as Locale);
+}
 
 const isAuthenticated = ref(!!localStorage.getItem('api_token'));
 const showLogin = ref(false);
@@ -163,18 +191,18 @@ const fabStyle = computed(() => {
   return { right: 'auto', bottom: 'auto', left: fabPos.x + 'px', top: fabPos.y + 'px' };
 });
 
-const navItems = [
-  { label: '仪表盘', key: 'dashboard', iconComponent: SpeedometerOutline },
-  { label: '账号', key: 'accounts', iconComponent: PeopleOutline },
-  { label: 'DNS', key: 'dns', iconComponent: GlobeOutline },
-  { label: 'Workers', key: 'workers', iconComponent: ConstructOutline },
-  { label: '存储', key: 'storage', iconComponent: ServerOutline },
-  { label: 'AI', key: 'ai', iconComponent: SparklesOutline },
-  { label: '渲染', key: 'browser-render', iconComponent: ImageOutline },
-  { label: '商店', key: 'store', iconComponent: StorefrontOutline },
-  { label: '隧道/回源', key: 'tunnels', iconComponent: GitBranchOutline },
-  { label: '设置', key: 'settings', iconComponent: SettingsOutline },
-];
+const navItems = computed(() => [
+  { label: t('nav.dashboard'), key: 'dashboard', iconComponent: SpeedometerOutline },
+  { label: t('nav.accounts'), key: 'accounts', iconComponent: PeopleOutline },
+  { label: t('nav.dns'), key: 'dns', iconComponent: GlobeOutline },
+  { label: t('nav.workers'), key: 'workers', iconComponent: ConstructOutline },
+  { label: t('nav.storage'), key: 'storage', iconComponent: ServerOutline },
+{ label: t('nav.ai'), key: 'ai', iconComponent: SparklesOutline },
+  { label: t('nav.render'), key: 'browser-render', iconComponent: ImageOutline },
+  { label: t('nav.store'), key: 'store', iconComponent: StorefrontOutline },
+  { label: t('nav.tunnels'), key: 'tunnels', iconComponent: GitBranchOutline },
+  { label: t('nav.settings'), key: 'settings', iconComponent: SettingsOutline },
+]);
 
 function initFabPos() {
   if (fabPos.x < 0) {
@@ -264,7 +292,7 @@ async function handleLogin() {
   } catch {
     localStorage.removeItem('api_token');
     isAuthenticated.value = false;
-    globalMessage.error('API Secret 不正确');
+    globalMessage.error(t('app.invalidApiSecret'));
   } finally {
     loginLoading.value = false;
   }
@@ -285,18 +313,18 @@ function renderIcon(icon: Component) {
   return () => h(NIcon, null, { default: () => h(icon) });
 }
 
-const menuOptions = [
-  { label: '仪表盘', key: 'dashboard', icon: renderIcon(SpeedometerOutline) },
-  { label: '账号管理', key: 'accounts', icon: renderIcon(PeopleOutline) },
-  { label: 'DNS 管理', key: 'dns', icon: renderIcon(GlobeOutline) },
-  { label: 'Workers', key: 'workers', icon: renderIcon(ConstructOutline) },
-  { label: '存储管理', key: 'storage', icon: renderIcon(ServerOutline) },
-  { label: 'AI 推理', key: 'ai', icon: renderIcon(SparklesOutline) },
-  { label: '浏览器渲染', key: 'browser-render', icon: renderIcon(ImageOutline) },
-  { label: '模板商店', key: 'store', icon: renderIcon(StorefrontOutline) },
-  { label: '隧道/回源', key: 'tunnels', icon: renderIcon(GitBranchOutline) },
-  { label: '设置', key: 'settings', icon: renderIcon(SettingsOutline) },
-];
+const menuOptions = computed(() => [
+  { label: t('menu.dashboard'), key: 'dashboard', icon: renderIcon(SpeedometerOutline) },
+  { label: t('menu.accounts'), key: 'accounts', icon: renderIcon(PeopleOutline) },
+  { label: t('menu.dns'), key: 'dns', icon: renderIcon(GlobeOutline) },
+  { label: t('menu.workers'), key: 'workers', icon: renderIcon(ConstructOutline) },
+  { label: t('menu.storage'), key: 'storage', icon: renderIcon(ServerOutline) },
+  { label: t('menu.tunnels'), key: 'tunnels', icon: renderIcon(GitBranchOutline) },
+  { label: t('menu.ai'), key: 'ai', icon: renderIcon(SparklesOutline) },
+  { label: t('menu.browserRender'), key: 'browser-render', icon: renderIcon(ImageOutline) },
+  { label: t('menu.store'), key: 'store', icon: renderIcon(StorefrontOutline) },
+  { label: t('menu.settings'), key: 'settings', icon: renderIcon(SettingsOutline) },
+]);
 
 function handleMenuClick(key: string) {
   router.push({ name: key }).catch(() => {});

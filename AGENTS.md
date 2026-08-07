@@ -178,7 +178,7 @@ chmod +x deploy.sh && ./deploy.sh
 |---|---|---|
 | 账户管理 CRUD | `src/routes/accounts.ts` | `src/routes/accounts.ts` |
 | DNS 记录管理 | `src/routes/dns.ts` | `src/routes/dns.ts` |
-| Workers/Pages 部署 | `src/routes/workers.ts` | `src/routes/workers.ts` |
+| Workers/Pages 部署（batch-deploy 统一单/批量 + config 重部署预填） | `src/routes/workers.ts` | `src/routes/workers.ts` |
 | KV/D1/R2 存储 | `src/routes/storage.ts` | `src/routes/storage.ts` |
 | AI 推理（内部） | `src/routes/ai.ts` | `src/routes/ai.ts` |
 | OpenAI 兼容 API | `src/routes/openai.ts` | `src/routes/openai.ts` |
@@ -188,6 +188,8 @@ chmod +x deploy.sh && ./deploy.sh
 | 应用商店/Catalog | `src/routes/store.ts` | `src/routes/store.ts` |
 | 定时任务 | `src/routes/tasks.ts` | —（Worker 用 scheduled handler） |
 | 路由工具函数 | `src/routes/routeUtils.ts` | — |
+
+> **TTS 模型入参注意**：不同 TTS 模型的入参完全不同（如 `aura-2-en` 用 `text+speaker+encoding` 且 speaker 为 38 个希腊名、`aura-2-es` 同上但 speaker 仅 10 个西/意名、`aura-1` speaker 仅 12 个、`melotts` 用 `prompt`+`lang` 且无 `speaker`/`encoding`）。**不要写死请求体或全局说话人列表**。当前实现通过 `GET /accounts/{account_id}/ai/models/schema?model={model}` 动态获取每个模型的 input schema（`getModelInputSchema`，缓存于 `aiService.ts`），并用 `buildTtsCfBody` 只发送 schema 存在的字段（`prompt`/`text` 自动识别、speaker 用枚举校验并兜底、`encoding` 仅在该模型支持时设置）；`/api/v1/models?task=text-to-speech` 会附带 `speakers`/`default_speaker`/`advanced_params`，前端按模型渲染说话人下拉框（无 speaker 的模型禁用），并把 `container`/`sample_rate`/`bit_rate`/`lang` 等可选参数收进"高级设置"折叠面板（schema 驱动，不支持的字段不展示、不提交）。
 
 ### 后端业务逻辑（services/）
 

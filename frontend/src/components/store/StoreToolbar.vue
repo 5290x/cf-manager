@@ -3,7 +3,7 @@
     <n-input
       :value="searchText"
       @update:value="(v: string) => emit('update:searchText', v)"
-      placeholder="搜索模板..."
+      :placeholder="t('storeToolbar.searchPlaceholder')"
       clearable
       size="small"
       style="width: 220px"
@@ -24,7 +24,7 @@
       <template #icon>
         <n-icon :component="favOnly ? Star : StarOutline" />
       </template>
-      {{ favOnly ? '仅看收藏' : '收藏' }}
+      {{ favOnly ? t('storeToolbar.favOnly') : t('storeToolbar.favorites') }}
     </n-button>
     <n-button
       v-if="hasActiveFilter"
@@ -32,13 +32,17 @@
       quaternary
       @click="emit('clear')"
     >
-      清除筛选
+      {{ t('storeToolbar.clearFilter') }}
     </n-button>
   </n-space>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Star, StarOutline } from '@vicons/ionicons5';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   searchText: string;
@@ -54,10 +58,10 @@ const emit = defineEmits<{
   (e: 'clear'): void;
 }>();
 
-const sortOptions = [
-  { label: '名称 (A-Z)', value: 'name' },
-  { label: '版本 (新→旧)', value: 'version' },
-];
+const sortOptions = computed(() => [
+  { label: t('storeToolbar.sortName'), value: 'name' },
+  { label: t('storeToolbar.sortVersion'), value: 'version' },
+]);
 </script>
 
 <style scoped>

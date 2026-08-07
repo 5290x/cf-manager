@@ -1,5 +1,6 @@
 import axios, { type AxiosError } from 'axios';
 import { message as globalMessage } from '../utils/discreteApi';
+import i18n from '../i18n';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -42,7 +43,7 @@ apiClient.interceptors.response.use(
         ? errObj
         : (errObj.message || JSON.stringify(errObj));
     } else {
-      error.errorMessage = body?.message || error?.message || '网络请求失败';
+      error.errorMessage = body?.message || error?.message || i18n.global.t('common.networkError');
     }
 
     if (error?.response?.status === 401 || (error?.response?.status === 403 && errObj?.code !== 'R2_NOT_ENABLED' && errObj?.code !== 10042)) {

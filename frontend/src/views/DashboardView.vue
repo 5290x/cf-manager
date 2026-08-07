@@ -2,8 +2,8 @@
   <div class="dashboard-page">
     <n-space align="center" justify="space-between" style="width: 100%" :wrap="true">
       <n-space align="center">
-        <n-h2 style="margin: 0">仪表盘</n-h2>
-        <n-tag size="small" type="info">今日额度</n-tag>
+        <n-h2 style="margin: 0">{{ t('dashboard.title') }}</n-h2>
+        <n-tag size="small" type="info">{{ t('dashboard.todayQuota') }}</n-tag>
       </n-space>
       <n-space align="center">
         <n-select
@@ -13,7 +13,7 @@
         />
         <n-input
           v-model:value="searchQuery"
-          placeholder="搜索账户..."
+          :placeholder="t('dashboard.searchAccounts')"
           clearable
           style="width: 200px"
         />
@@ -21,7 +21,7 @@
     </n-space>
 
     <n-space v-if="globalStats.totalAccounts > 0" style="margin: 12px 0; flex-shrink: 0" :wrap="true">
-      <n-tag>{{ globalStats.totalAccounts }} 账户</n-tag>
+      <n-tag>{{ globalStats.totalAccounts }} {{ t('dashboard.accounts') }}</n-tag>
       <n-tag v-if="globalStats.aiExhausted > 0" type="error">🤖 {{ globalStats.aiExhausted }}</n-tag>
       <n-tag v-if="globalStats.browserExhausted > 0" type="error">🖥️ {{ globalStats.browserExhausted }}</n-tag>
       <n-tag type="info">
@@ -48,15 +48,15 @@
         </n-gi>
       </n-grid>
       </div>
-      <n-empty v-if="!quotaStore.loading && quotaWithResources.length === 0" description="暂无账户数据" />
+      <n-empty v-if="!quotaStore.loading && quotaWithResources.length === 0" :description="t('dashboard.noAccountData')" />
     </n-spin>
 
-    <n-h3 style="margin: 0; flex-shrink: 0">最近操作日志</n-h3>
+    <n-h3 style="margin: 0; flex-shrink: 0">{{ t('dashboard.recentLogs') }}</n-h3>
     <n-space style="flex-shrink: 0" :wrap="true" align="center" :size="8">
       <n-select
         v-model:value="logFilter.action"
         :options="actionOptions"
-        placeholder="操作类型"
+        :placeholder="t('dashboard.actionType')"
         clearable
         filterable
         size="small"
@@ -66,7 +66,7 @@
         v-model:value="logFilter.startDate"
         type="date"
         value-format="yyyy-MM-dd"
-        placeholder="开始日期"
+        :placeholder="t('dashboard.startDate')"
         clearable
         size="small"
         style="width: 140px"
@@ -75,12 +75,12 @@
         v-model:value="logFilter.endDate"
         type="date"
         value-format="yyyy-MM-dd"
-        placeholder="结束日期"
+        :placeholder="t('dashboard.endDate')"
         clearable
         size="small"
         style="width: 140px"
       />
-      <n-button size="small" type="primary" :loading="loadingLogs" @click="fetchLogs">查询</n-button>
+      <n-button size="small" type="primary" :loading="loadingLogs" @click="fetchLogs">{{ t('dashboard.query') }}</n-button>
     </n-space>
     <div class="log-table-wrapper" style="flex: 1; min-height: 0; overflow: auto">
 
@@ -99,11 +99,14 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useQuotaStore } from '../stores/quotaStore';
 import apiClient from '../api/client';
 import type { DataTableColumns } from 'naive-ui';
 import { formatCN, formatCNShort } from '../utils/dateFormat';
 import CompactAccountCard from '../components/CompactAccountCard.vue';
+
+const { t } = useI18n();
 
 const quotaStore = useQuotaStore();
 const searchQuery = ref('');
@@ -114,12 +117,12 @@ function onResize() {
   windowWidth.value = window.innerWidth;
 }
 
-const sortOptions = [
-  { label: '名称 A-Z', value: 'name' },
-  { label: '名称 Z-A', value: 'name-desc' },
-  { label: '使用率 高→低', value: 'usage-desc' },
-  { label: '使用率 低→高', value: 'usage-asc' },
-];
+const sortOptions = computed(() => [
+  { label: t('dashboard.sortNameAsc'), value: 'name' },
+  { label: t('dashboard.sortNameDesc'), value: 'name-desc' },
+  { label: t('dashboard.sortUsageDesc'), value: 'usage-desc' },
+  { label: t('dashboard.sortUsageAsc'), value: 'usage-asc' },
+]);
 
 function getMaxUsage(account: any) {
   return Math.max(
@@ -207,38 +210,22 @@ const globalStats = computed(() => {
 
 const auditLogs = ref<any[]>([]);
 const loadingLogs = ref(false);
-const ACTION_LABELS: Record<string, string> = {
-  ai_chat_completion: 'AI 对话',
-  browser_render: '浏览器渲染',
-  create_account: '创建账户',
-  import_account: '导入账户',
-  delete_account: '删除账户',
-  update_features: '更新功能',
-  test_account: '测试账户',
-  view_credentials: '查看凭证',
-  clear_exhausted: '清除耗尽',
-  create_dns: '创建DNS',
-  update_dns: '更新DNS',
-  delete_dns: '删除DNS',
-  deploy_worker: '部署Worker',
-  delete_worker: '删除Worker',
-  deploy_pages: '部署Pages',
-  delete_pages: '删除Pages',
-  batch_deploy: '批量部署',
-  batch_deploy_pages: '批量部署Pages',
-  env_sync: '环境同步',
-  kv_write: 'KV操作',
-  task_create: '创建任务',
-  task_delete: '删除任务',
-  task_run: '执行任务',
-};
-const actionOptions = Object.entries(ACTION_LABELS).map(([value, label]) => ({ label, value }));
+const ACTION_KEYS = [
+  'ai_chat_completion', 'browser_render', 'create_account', 'import_account',
+  'delete_account', 'update_features', 'test_account', 'view_credentials',
+  'clear_exhausted', 'create_dns', 'update_dns', 'delete_dns',
+  'deploy_worker', 'delete_worker', 'deploy_pages', 'delete_pages',
+  'batch_deploy', 'batch_deploy_pages', 'env_sync', 'kv_write',
+  'task_create', 'task_delete', 'task_run',
+];
+const actionOptions = computed(() => ACTION_KEYS.map(k => ({ label: t(`dashboard.actions.${k}`), value: k })));
 function actionLabel(action: string): string {
-  return ACTION_LABELS[action] || action;
+  return ACTION_KEYS.includes(action) ? t(`dashboard.actions.${action}`) : action;
 }
-const STATUS_LABELS: Record<string, string> = { success: '成功', error: '失败' };
 function statusLabel(status: string): string {
-  return STATUS_LABELS[status] || status;
+  if (status === 'success') return t('dashboard.statusSuccess');
+  if (status === 'error') return t('dashboard.statusError');
+  return status;
 }
 const logFilter = reactive<{ action: string | null; startDate: number | null; endDate: number | null }>({
   action: null,
@@ -273,21 +260,21 @@ const isMobile = computed(() => windowWidth.value < 640);
 const logColumns = computed<DataTableColumns<any>>(() => {
   if (isMobile.value) {
     return [
-      { title: '时间', key: 'created_at', width: 70, render: (row) => formatCNShort(row.created_at) },
-      { title: '账号', key: 'account_name', width: 65, render: (row) => row.account_name || '-' },
-      { title: '操作', key: 'action', width: 60, render: (row) => actionLabel(row.action) },
-      { title: '目标', key: 'target', width: 85, ellipsis: { tooltip: true } },
-      { title: '详情', key: 'detail', width: 70, minWidth: 60, ellipsis: { tooltip: true } },
-      { title: '状态', key: 'status', width: 45, render: (row) => statusLabel(row.status) },
+      { title: t('dashboard.time'), key: 'created_at', width: 70, render: (row) => formatCNShort(row.created_at) },
+      { title: t('dashboard.account'), key: 'account_name', width: 65, render: (row) => row.account_name || '-' },
+      { title: t('dashboard.action'), key: 'action', width: 60, render: (row) => actionLabel(row.action) },
+      { title: t('dashboard.target'), key: 'target', width: 85, ellipsis: { tooltip: true } },
+      { title: t('dashboard.detail'), key: 'detail', width: 70, minWidth: 60, ellipsis: { tooltip: true } },
+      { title: t('dashboard.status'), key: 'status', width: 45, render: (row) => statusLabel(row.status) },
     ];
   }
   return [
-    { title: '时间', key: 'created_at', width: 150, render: (row) => formatCN(row.created_at) },
-    { title: '账号', key: 'account_name', width: 120, render: (row) => row.account_name || '-' },
-    { title: '操作', key: 'action', width: 150, render: (row) => actionLabel(row.action) },
-    { title: '目标', key: 'target', width: 150, ellipsis: { tooltip: true } },
-    { title: '详情', key: 'detail', width: 180, minWidth: 120, ellipsis: { tooltip: true } },
-    { title: '状态', key: 'status', width: 80, render: (row) => statusLabel(row.status) },
+    { title: t('dashboard.time'), key: 'created_at', width: 150, render: (row) => formatCN(row.created_at) },
+    { title: t('dashboard.account'), key: 'account_name', width: 120, render: (row) => row.account_name || '-' },
+    { title: t('dashboard.action'), key: 'action', width: 150, render: (row) => actionLabel(row.action) },
+    { title: t('dashboard.target'), key: 'target', width: 150, ellipsis: { tooltip: true } },
+    { title: t('dashboard.detail'), key: 'detail', width: 180, minWidth: 120, ellipsis: { tooltip: true } },
+    { title: t('dashboard.status'), key: 'status', width: 80, render: (row) => statusLabel(row.status) },
   ];
 });
 

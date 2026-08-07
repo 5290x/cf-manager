@@ -1,5 +1,6 @@
 import { Account } from '../models/account';
 import { getCfClient, getAuthHeaders } from './cfFactory';
+import { ManualVarInput } from './bindings';
 import { proxyFetch, buildCurlCommand } from './proxyService';
 import { fetchScriptSafely } from './ssrfGuard';
 import { getAllZones } from './accountRouter';
@@ -331,15 +332,52 @@ export async function deployWorker(
     form.append('worker.js', new Blob([contentBytes], { type: 'application/javascript+module' }), 'worker.js');
   }
 
-  const resp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
-    method: 'PUT',
+  // 版本化优先（对齐 Store 部署通道 workerDeploy.ts）：
+  // 版本化 worker 下传统 PUT 的 metadata.bindings 会被 CF 忽略，必须用 Versions API 提交才能让 vars/bindings 生效。
+  // - script 已存在 → POST /versions?bindings_inherit=strict（创建带 bindings 的新版本）+ POST /deployments
+  // - script 不存在 → 传统 PUT 创建（首次部署，自动上线）
+  const checkResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
     headers: { ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
-    body: form,
-  }, 300000, undefined, account);
-  const respJson = await resp.json() as any;
-  if (!resp.ok || !respJson.success) {
-    throw new Error(`${resp.status} ${JSON.stringify(respJson)}`);
+  }, 30000, undefined, account);
+  let respJson: any;
+  if (checkResp.status === 404) {
+    const createResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+      method: 'PUT',
+      headers: { ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
+      body: form,
+    }, 300000, undefined, account);
+    respJson = await createResp.json() as any;
+    if (!createResp.ok || !respJson.success) {
+      throw new Error(`Script creation failed: ${createResp.status} ${JSON.stringify(respJson)}`);
+    }
+  } else if (!checkResp.ok) {
+    const errBody = await checkResp.text();
+    throw new Error(`Script existence check failed: ${checkResp.status} ${errBody.slice(0, 300)}`);
+  } else {
+    // 已存在：优先 Versions API（版本化 worker 下 bindings 才能生效）
+    const versionResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}/versions?bindings_inherit=strict`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
+      body: form,
+    }, 300000, undefined, account);
+    const versionJson = await versionResp.json() as any;
+    if (versionResp.ok && versionJson.success) {
+      respJson = versionJson;
+    } else {
+      // 非版本化 worker：versions API 不可用，fallback 传统 PUT（PUT 自动部署）
+      appLogger.warn(`[Worker Deploy] Versions API unavailable for ${name} (${versionResp.status}), falling back to PUT`);
+      const putResp = await proxyFetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${name}`, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'User-Agent': 'wrangler/4.112.0' },
+        body: form,
+      }, 300000, undefined, account);
+      respJson = await putResp.json() as any;
+      if (!putResp.ok || !respJson.success) {
+        throw new Error(`${putResp.status} ${JSON.stringify(respJson)}`);
+      }
+    }
   }
+  console.log(`[DBG] deployWorker upload status=ok success=${respJson.success} versionId=${respJson?.result?.version_id || respJson?.result?.id || respJson?.result?.version?.id}`);
 
   // 设置可观测性（Workers 跟踪 + 日志）。Cloudflare 不读取上传 metadata 中的 observability，
   // 必须通过独立的 PATCH script-settings 端点设置（observability 作为嵌套字段）；脚本上传成功后再调用。
@@ -360,11 +398,12 @@ export async function deployWorker(
     }
   }
 
-  // 从 PUT 响应中提取 version_id（版本化 API 下需要用它创建 deployment）
-  // 注意：result.id 是脚本名（如 "smail"），不是 version_id，不能用作回退
+  // 从上传响应中提取 version_id（版本化 API 下需要用它创建 deployment）
+  // 注意：传统 PUT 的 result.id 是脚本名（如 "smail"），不能用作回退；POST /versions 的 result.id 才是版本 ID
   let versionId: string | undefined =
     respJson?.result?.version_id ||
-    respJson?.result?.version?.id;
+    respJson?.result?.version?.id ||
+    respJson?.result?.id;
 
   // Enable workers.dev subdomain so the Worker is accessible immediately
   let subdomain: string | undefined;
@@ -416,7 +455,8 @@ export async function deployWorker(
         }, 30000, undefined, account);
         if (!depResp.ok) {
           const depTxt = await depResp.text();
-          appLogger.warn(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 300)}`);
+          // 失败必须抛错：否则 batch-deploy 会误判为 success，前端乐观显示「保存成功」但实际版本未上线
+          throw new Error(`[Worker Deploy] Deployment creation failed for ${name}: ${depResp.status} ${depTxt.slice(0, 500)}`);
         }
       }
     } catch (e: any) {
@@ -645,7 +685,12 @@ export async function getPagesProject(account: Account, projectName: string): Pr
 export async function editPagesProject(account: Account, projectName: string, params: any): Promise<any> {
   const accountId = account.account_id;
   const cf = getCfClient(account);
-  return await cf.pages.projects.edit(projectName, { account_id: accountId!, ...params });
+  const envVarsDebug = JSON.stringify(params?.deployment_configs?.production?.env_vars || params?.deployment_configs?.production?.env_vars);
+  console.log(`[DBG] editPagesProject ${projectName} productionEnvVars=${envVarsDebug}`);
+  console.log(`[DBG] editPagesProject ${projectName} fullParams=${JSON.stringify(params)}`);
+  const res = await cf.pages.projects.edit(projectName, { account_id: accountId!, ...params });
+  console.log(`[DBG] editPagesProject resultEnvVars=${JSON.stringify((res as any)?.deployment_configs?.production?.env_vars)}`);
+  return res;
 }
 
 export async function listPagesDomains(account: Account, projectName: string): Promise<any[]> {
@@ -951,5 +996,175 @@ export async function ensurePagesProject(account: Account, projectName: string):
     await cf.pages.projects.create({ account_id: accountId, name: projectName, production_branch: 'main' } as any);
   } catch (e: any) {
     if (e?.status !== 409) throw e;  // 409 = already exists, ignore
+  }
+}
+
+export interface WorkerConfigBinding {
+  type: string;
+  name: string;
+  resourceName?: string;
+  mode: 'existing';
+  className?: string;
+  scriptName?: string;
+  service?: string;
+  environment?: string;
+  queueName?: string;
+}
+export interface WorkerConfigResult {
+  vars: Array<{ name: string; value: string | null; secret: boolean }>;
+  bindings: WorkerConfigBinding[];
+}
+
+export async function getWorkerConfig(account: Account, name: string): Promise<WorkerConfigResult> {
+  const authHeaders = getAuthHeaders(account);
+  const resp = await proxyFetch(`${CF_BASE}/accounts/${account.account_id}/workers/scripts/${name}`, { headers: authHeaders }, 30000, undefined, account);
+  const buf = Buffer.from(await resp.arrayBuffer());
+  const contentType = (resp.headers.get('content-type') || '') as string;
+  const vars: Array<{ name: string; value: string | null; secret: boolean }> = [];
+  const bindings: WorkerConfigBinding[] = [];
+
+  const mapBinding = (b: any) => {
+    if (b.type === 'plain_text') vars.push({ name: b.name, value: b.text ?? '', secret: false });
+    else if (b.type === 'secret_text') vars.push({ name: b.name, value: null, secret: true });
+    else {
+      // 归一化为前端意图类型，并保留高级绑定的参数字段供重部署预填回填
+      const intentType =
+        b.type === 'durable_object_namespace' ? 'durable_object' :
+        b.type === 'kv_namespace' ? 'kv' :
+        b.type === 'r2_bucket' ? 'r2' : b.type;
+      bindings.push({
+        type: intentType, name: b.name, mode: 'existing',
+        resourceName: b.namespace_id || b.id || b.bucket_name || undefined,
+        ...(intentType === 'durable_object' ? { className: b.class_name, scriptName: b.script_name } : {}),
+        ...(intentType === 'service' ? { service: b.service, environment: b.environment } : {}),
+        ...(intentType === 'queue' ? { queueName: b.queue_name } : {}),
+      });
+    }
+  };
+
+  // 1) multipart metadata part（非版本化 worker 的 GET /scripts/:name 返回 bindings）
+  if (/multipart\/form-data/i.test(contentType)) {
+    const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+    const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+    if (boundary) {
+      const delim = Buffer.from(`--${boundary}`);
+      const findIndex = (hay: Buffer, needle: Buffer, from = 0): number => {
+        outer: for (let i = from; i <= hay.length - needle.length; i++) {
+          for (let j = 0; j < needle.length; j++) if (hay[i + j] !== needle[j]) continue outer;
+          return i;
+        }
+        return -1;
+      };
+      let pos = findIndex(buf, delim);
+      while (pos >= 0 && pos < buf.length) {
+        const next = findIndex(buf, delim, pos + delim.length);
+        const seg = next < 0 ? buf.subarray(pos + delim.length) : buf.subarray(pos + delim.length, next);
+        if (seg.length > 0) {
+          const headerEnd = findIndex(seg, Buffer.from('\r\n\r\n'));
+          if (headerEnd >= 0 && /name="metadata"/i.test(seg.subarray(0, headerEnd).toString())) {
+            let body = seg.subarray(headerEnd + 4);
+            if (body.length >= 2 && body[body.length - 2] === 0x0d && body[body.length - 1] === 0x0a) body = body.subarray(0, body.length - 2);
+            try {
+              const meta = JSON.parse(body.toString());
+              for (const b of (meta.bindings || [])) mapBinding(b);
+            } catch { /* metadata 解析失败忽略，走版本化 fallback */ }
+          }
+        }
+        if (next < 0) break;
+        pos = next;
+      }
+    }
+  }
+
+  // 2) 版本化 fallback：版本化 worker 的 GET /scripts/:name 不返回 bindings，
+  //    必须查 Versions API（当前部署版本的 resources.bindings）
+  if (vars.length === 0 && bindings.length === 0) {
+    try {
+      const cf = getCfClient(account);
+      const deps: any = await cf.workers.scripts.deployments.list(name, { account_id: account.account_id! });
+      const latest = (deps?.deployments || deps?.result?.deployments || [])[0];
+      const vid = latest?.versions?.[0]?.version_id;
+      if (vid) {
+        const v: any = await cf.workers.scripts.versions.get(name, vid, { account_id: account.account_id! });
+        const raw = (v?.resources?.bindings || v?.result?.resources?.bindings || []) as any[];
+        for (const b of raw) mapBinding(b);
+      }
+    } catch { /* 读回失败静默，前端有降级提示 */ }
+  }
+
+  return { vars, bindings };
+}
+
+export async function getPagesConfig(account: Account, name: string): Promise<WorkerConfigResult> {
+  const cf = getCfClient(account);
+  const project = await cf.pages.projects.get(name, { account_id: account.account_id! });
+  const cfg = project?.deployment_configs?.production || {};
+  const vars: Array<{ name: string; value: string | null; secret: boolean }> = [];
+  const bindings: WorkerConfigBinding[] = [];
+  for (const [k, v] of Object.entries<any>(cfg.env_vars || {})) {
+    const isSecret = v?.type === 'secret_text';
+    vars.push({ name: k, value: isSecret ? null : (v?.value ?? ''), secret: isSecret });
+  }
+  for (const [name, v] of Object.entries<any>(cfg.kv_namespaces || {})) bindings.push({ type: 'kv', name, resourceName: v?.namespace_id, mode: 'existing' });
+  for (const [name, v] of Object.entries<any>(cfg.d1_databases || {})) bindings.push({ type: 'd1', name, resourceName: v?.id, mode: 'existing' });
+  for (const [name, v] of Object.entries<any>(cfg.r2_buckets || {})) bindings.push({ type: 'r2', name, resourceName: v?.name, mode: 'existing' });
+  if ((cfg as any).ai?.binding) bindings.push({ type: 'ai', name: (cfg as any).ai.binding, mode: 'existing' });
+  return { vars, bindings };
+}
+
+// 全量覆盖 + diff：
+// - plain/资源绑定有变化 → 用 scriptContent（或拉取现有代码）重传 deployWorker
+// - 仅 secrets 变化 → 只调 updateSecret/deleteSecret，不重传代码
+export async function applyWorkerConfigDiff(
+  account: Account,
+  name: string,
+  opts: { vars: ManualVarInput[]; bindings: Record<string, unknown>[]; scriptContent?: string; packageZip?: Buffer; mainModule?: string },
+): Promise<void> {
+  const current = await getWorkerConfig(account, name);
+  const currentPlain = new Map(current.vars.filter(v => !v.secret).map(v => [v.name, v.value || '']));
+  const currentSecretNames = new Set(current.vars.filter(v => v.secret).map(v => v.name));
+  const targetPlain = new Map((opts.vars || []).filter(v => !v.secret && !v.keep).map(v => [v.name, v.value || '']));
+  const targetSecretNames = new Set((opts.vars || []).filter(v => v.secret).map(v => v.name));
+
+  const plainChanged = targetPlain.size !== currentPlain.size
+    || [...targetPlain.entries()].some(([k, val]) => currentPlain.get(k) !== val);
+  // 指纹只比较（类型:名称）集合——current.bindings 不含资源 id，opts.bindings 含 id，比较语义集合即可
+  // secret 由 secrets API 独立管理：剔除 secret_text，避免新增/修改 secret 误触发代码重传
+  // 写入侧为 CF 原始类型（kv_namespace 等），比较前统一归一化为前端意图类型（与读取侧 getWorkerConfig 一致）
+  const toIntentType = (type: string) =>
+    type === 'durable_object_namespace' ? 'durable_object' :
+    type === 'kv_namespace' ? 'kv' :
+    type === 'r2_bucket' ? 'r2' : type;
+  const bindingFingerprint = (arr: any[]) => JSON.stringify((arr || []).filter((b: any) => b.type !== 'secret_text').map((b: any) => `${toIntentType(b.type)}:${b.name}`).sort());
+  const bindingsChanged = bindingFingerprint(opts.bindings) !== bindingFingerprint(current.bindings);
+  console.log(`[DBG] applyWorkerConfigDiff name=${name} vars=${JSON.stringify((opts.vars || []).map((v: any) => `${v.name}:${v.secret ? 'S' : 'P'}${v.keep ? '(keep)' : ''}`))} plainChanged=${plainChanged} bindingsChanged=${bindingsChanged}`);
+
+  // 删除：现有 secret 不在目标集合
+  for (const s of currentSecretNames) {
+    if (!targetSecretNames.has(s)) {
+      try { await deleteSecret(account, name, s); } catch { /* 删除失败不阻塞 */ }
+    }
+  }
+
+  if (plainChanged || bindingsChanged) {
+    let content: string | Buffer;
+    if (opts.scriptContent !== undefined && opts.scriptContent !== null) content = opts.scriptContent;
+    else if (opts.packageZip) content = '';
+    else content = await getScriptContent(account, name); // 复用现有代码
+    console.log(`[DBG] redeploy content type=${typeof content} length=${Buffer.isBuffer(content) ? content.length : (content as string).length}`);
+    await deployWorker(account, name, content, {
+      bindings: opts.bindings,
+      // 版本化 worker 下 PUT 只创建版本不部署，必须显式创建 deployment 才会上线（否则重部署的 vars/bindings 不生效）
+      createDeployment: true,
+      ...(opts.packageZip ? { packageZip: opts.packageZip, mainModule: opts.mainModule } : {}),
+    });
+    const after = await getWorkerConfig(account, name);
+    console.log(`[DBG] redeploy after vars=${JSON.stringify(after.vars)} bindings=${JSON.stringify(after.bindings)}`);
+  }
+
+  // 新增/更新 secrets（keep=true 或值为空则跳过）
+  for (const v of opts.vars || []) {
+    if (!v.secret || !v.name || v.keep) continue;
+    if (v.value) await updateSecret(account, name, v.name, 'secret_text', v.value);
   }
 }

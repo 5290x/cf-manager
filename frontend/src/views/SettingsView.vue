@@ -1,57 +1,56 @@
 <template>
   <div class="page-view">
-    <n-h2>设置</n-h2>
+    <n-h2>{{ t('settings.title') }}</n-h2>
 
-    <n-card title="配置状态" size="small" style="margin-bottom: 16px">
+    <n-card :title="t('settings.configStatus')" size="small" style="margin-bottom: 16px">
       <n-spin :show="loading">
         <n-descriptions :column="1" bordered label-placement="left">
-          <n-descriptions-item label="加密密钥">
+          <n-descriptions-item :label="t('settings.encryptionKey')">
             <n-tag :type="settings.encryption_key_configured ? 'success' : 'error'" size="small">
-              {{ settings.encryption_key_configured ? '已配置' : '未配置' }}
+              {{ settings.encryption_key_configured ? t('common.configured') : t('common.notConfigured') }}
             </n-tag>
           </n-descriptions-item>
-          <n-descriptions-item label="API Secret">
+          <n-descriptions-item :label="t('settings.apiSecret')">
             <n-tag :type="settings.api_secret_configured ? 'success' : 'error'" size="small">
-              {{ settings.api_secret_configured ? '已配置' : '未配置' }}
+              {{ settings.api_secret_configured ? t('common.configured') : t('common.notConfigured') }}
             </n-tag>
           </n-descriptions-item>
-          <n-descriptions-item label="Demo 保护账户">
+          <n-descriptions-item :label="t('settings.demoAccounts')">
             <n-text v-if="settings.demo_account_ids">{{ settings.demo_account_ids }}</n-text>
-            <n-tag v-else size="small" type="default">未配置</n-tag>
+            <n-tag v-else size="small" type="default">{{ t('common.notConfigured') }}</n-tag>
           </n-descriptions-item>
-          <n-descriptions-item label="数据库路径">
+          <n-descriptions-item :label="t('settings.dbPath')">
             <n-text>{{ settings.db_path || '-' }}</n-text>
           </n-descriptions-item>
-          <n-descriptions-item label="版本">
+          <n-descriptions-item :label="t('settings.version')">
             <n-text v-if="settings.version">v{{ settings.version }}<n-text v-if="settings.git_commit" depth="3" style="margin-left: 8px; font-size: 12px">{{ settings.git_commit }}</n-text></n-text>
-            <n-tag v-else size="small" type="default">未知</n-tag>
+            <n-tag v-else size="small" type="default">{{ t('settings.unknown') }}</n-tag>
           </n-descriptions-item>
         </n-descriptions>
       </n-spin>
     </n-card>
 
-    <n-card v-if="!isWorkerPlatform" title="代理设置" size="small" style="margin-bottom: 16px">
+    <n-card v-if="!isWorkerPlatform" :title="t('settings.proxySettings')" size="small" style="margin-bottom: 16px">
       <n-space vertical size="large">
         <!-- 优先级说明 -->
         <n-alert type="info" :bordered="false" style="font-size: 12px">
-          代理优先级：账户专属代理（已启用）&nbsp;&gt;&nbsp;Resin 代理池（已启用）&nbsp;&gt;&nbsp;全局代理（已启用）&nbsp;&gt;&nbsp;无代理。
-          可在「账号管理」中为每个账户单独配置专属代理。
+          {{ t('settings.proxyPriority') }}
         </n-alert>
 
         <!-- 全局代理 -->
         <div>
           <n-space align="center" style="margin-bottom: 12px">
             <n-switch :value="proxyEnabled" @update:value="toggleProxy" :loading="proxyToggling" size="small" />
-            <n-text strong :depth="proxyEnabled ? 1 : 3">全局代理</n-text>
-            <n-text depth="3" style="font-size: 12px">{{ proxyEnabled ? '已启用' : '已关闭' }}</n-text>
+            <n-text strong :depth="proxyEnabled ? 1 : 3">{{ t('settings.globalProxy') }}</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ proxyEnabled ? t('common.enabled') : t('common.disabled') }}</n-text>
           </n-space>
           <n-input-group>
-            <n-input v-model:value="proxyUrl" placeholder="例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" clearable style="flex: 1" />
-            <n-button type="info" :loading="proxyTesting" :disabled="!proxyUrl" @click="testProxy">测试</n-button>
-            <n-button type="primary" :loading="proxySaving" @click="saveProxy">保存</n-button>
+            <n-input v-model:value="proxyUrl" :placeholder="t('settings.proxyUrlPlaceholder')" clearable style="flex: 1" />
+            <n-button type="info" :loading="proxyTesting" :disabled="!proxyUrl" @click="testProxy">{{ t('settings.test') }}</n-button>
+            <n-button type="primary" :loading="proxySaving" @click="saveProxy">{{ t('common.save') }}</n-button>
           </n-input-group>
           <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            支持 HTTP/HTTPS 和 SOCKS5/SOCKS5h 代理协议，作为所有账户的默认代理。
+            {{ t('settings.proxyHint') }}
           </n-text>
         </div>
 
@@ -61,119 +60,119 @@
         <div>
           <n-space align="center" style="margin-bottom: 12px">
             <n-switch :value="resinEnabled" @update:value="toggleResin" :loading="resinToggling" size="small" />
-            <n-text strong :depth="resinEnabled ? 1 : 3">Resin 代理池</n-text>
-            <n-text depth="3" style="font-size: 12px">{{ resinEnabled ? '已启用' : '已关闭' }}</n-text>
+            <n-text strong :depth="resinEnabled ? 1 : 3">{{ t('settings.resinProxy') }}</n-text>
+            <n-text depth="3" style="font-size: 12px">{{ resinEnabled ? t('common.enabled') : t('common.disabled') }}</n-text>
             <n-button v-if="resinDashboardUrl && (resinDashboardUrl.startsWith('http://') || resinDashboardUrl.startsWith('https://'))" text type="primary" tag="a" :href="resinDashboardUrl" target="_blank" size="small">
-              面板 ↗
+              {{ t('settings.dashboard') }}
             </n-button>
           </n-space>
           <n-form label-placement="left" label-width="80" size="small">
-            <n-form-item label="服务地址">
-              <n-input v-model:value="resinUrlInput" placeholder="http://127.0.0.1:2260 或 socks5h://127.0.0.1:2260" clearable />
+            <n-form-item :label="t('settings.serviceUrl')">
+              <n-input v-model:value="resinUrlInput" :placeholder="t('settings.resinUrlPlaceholder')" clearable />
             </n-form-item>
-            <n-form-item label="Token">
+            <n-form-item :label="t('settings.token')">
               <n-input v-model:value="resinTokenInput" placeholder="RESIN_PROXY_TOKEN" clearable show-password-on="click" />
             </n-form-item>
-            <n-form-item label="Platform">
+            <n-form-item :label="t('settings.platform')">
               <n-input v-model:value="resinPlatformInput" placeholder="Default" clearable />
             </n-form-item>
           </n-form>
           <n-space>
-            <n-button type="info" :loading="resinTesting" :disabled="!resinUrlInput || !resinTokenInput" @click="testResin">测试连接</n-button>
-            <n-button type="primary" :loading="resinSaving" @click="saveResin">保存</n-button>
+            <n-button type="info" :loading="resinTesting" :disabled="!resinUrlInput || !resinTokenInput" @click="testResin">{{ t('settings.testConnection') }}</n-button>
+            <n-button type="primary" :loading="resinSaving" @click="saveResin">{{ t('common.save') }}</n-button>
           </n-space>
           <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            启用后每个账户自动通过 Resin 出口，使用账户 ID 绑定稳定 IP（sticky session）。详见
-            <n-a href="https://github.com/Resinat/Resin" target="_blank">Resin 项目</n-a>。
+            {{ t('settings.resinHint') }}
+            <n-a href="https://github.com/Resinat/Resin" target="_blank">Resin</n-a>。
           </n-text>
         </div>
       </n-space>
     </n-card>
 
-    <n-card title="缓存管理" size="small" style="margin-bottom: 16px">
+    <n-card :title="t('settings.cacheManagement')" size="small" style="margin-bottom: 16px">
       <n-space>
-        <n-button type="warning" @click="handleClearCache" :loading="clearing">清除缓存</n-button>
+        <n-button type="warning" @click="handleClearCache" :loading="clearing">{{ t('settings.clearCache') }}</n-button>
       </n-space>
     </n-card>
 
     <!-- 定时任务 -->
     <n-card v-if="!isWorkerPlatform" size="small">
       <template #header>
-        定时任务
-        <n-tag size="small" type="warning" style="margin-left: 8px; vertical-align: middle">任务逻辑待实现</n-tag>
+        {{ t('settings.scheduledTasks') }}
+        <n-tag size="small" type="warning" style="margin-left: 8px; vertical-align: middle">{{ t('settings.taskLogicPending') }}</n-tag>
       </template>
       <template #header-extra>
-        <n-button size="small" type="primary" @click="openTaskModal()">添加任务</n-button>
+        <n-button size="small" type="primary" @click="openTaskModal()">{{ t('settings.addTask') }}</n-button>
       </template>
       <n-spin :show="tasksLoading">
         <n-data-table v-if="tasks.length" :columns="taskColumns" :data="tasks" :bordered="false" size="small" :scroll-x="600" />
-        <n-empty v-else-if="!tasksLoading" description="暂无定时任务" />
+        <n-empty v-else-if="!tasksLoading" :description="t('settings.noTasks')" />
       </n-spin>
     </n-card>
 
     <!-- 添加/编辑任务 Modal -->
-    <n-modal v-if="!isWorkerPlatform" v-model:show="showTaskModal" preset="dialog" :title="editingTaskId ? '编辑任务' : '添加任务'" style="width: 550px; max-width: 95vw">
+    <n-modal v-if="!isWorkerPlatform" v-model:show="showTaskModal" preset="dialog" :title="editingTaskId ? t('settings.editTaskTitle') : t('settings.addTaskTitle')" style="width: 550px; max-width: 95vw">
       <n-form label-placement="left" label-width="100">
-        <n-form-item label="任务名称">
-          <n-input v-model:value="taskForm.name" placeholder="例如: 每日配额报告" />
+        <n-form-item :label="t('settings.taskName')">
+          <n-input v-model:value="taskForm.name" :placeholder="t('settings.taskNamePlaceholder')" />
         </n-form-item>
-        <n-form-item label="任务类型">
+        <n-form-item :label="t('settings.taskType')">
           <n-select v-model:value="taskForm.type" :options="taskTypeOptions" @update:value="onTaskTypeChange" />
         </n-form-item>
         <n-text v-if="currentTypeDesc" depth="3" style="display: block; margin: -8px 0 12px 100px; font-size: 12px">{{ currentTypeDesc }}</n-text>
 
         <!-- 动态配置: 账号选择 -->
-        <n-form-item v-if="taskNeedsAccount" label="账号">
-          <n-select v-model:value="taskConfig.accountId" :options="accountOptions" placeholder="选择账号" />
+        <n-form-item v-if="taskNeedsAccount" :label="t('settings.account')">
+          <n-select v-model:value="taskConfig.accountId" :options="accountOptions" :placeholder="t('settings.selectAccount')" />
         </n-form-item>
 
         <!-- KV 清理配置 -->
         <template v-if="taskForm.type === 'kv_cleanup'">
-          <n-form-item label="命名空间 ID">
+          <n-form-item :label="t('settings.namespaceId')">
             <n-input v-model:value="taskConfig.namespaceId" placeholder="KV Namespace ID" />
           </n-form-item>
-          <n-form-item label="Key 前缀">
-            <n-input v-model:value="taskConfig.prefix" placeholder="仅清理指定前缀（可选）" />
+          <n-form-item :label="t('settings.keyPrefix')">
+            <n-input v-model:value="taskConfig.prefix" :placeholder="t('settings.keyPrefixPlaceholder')" />
           </n-form-item>
         </template>
 
         <!-- D1 备份配置 -->
         <template v-if="taskForm.type === 'd1_backup'">
-          <n-form-item label="数据库 ID">
+          <n-form-item :label="t('settings.databaseId')">
             <n-input v-model:value="taskConfig.databaseId" placeholder="D1 Database UUID" />
           </n-form-item>
         </template>
 
         <!-- R2 清理配置 -->
         <template v-if="taskForm.type === 'r2_cleanup'">
-          <n-form-item label="存储桶">
-            <n-input v-model:value="taskConfig.bucket" placeholder="Bucket 名称" />
+          <n-form-item :label="t('settings.bucket')">
+            <n-input v-model:value="taskConfig.bucket" :placeholder="t('settings.bucketPlaceholder')" />
           </n-form-item>
-          <n-form-item label="最大保留天数">
+          <n-form-item :label="t('settings.maxAgeDays')">
             <n-input-number v-model:value="taskConfig.maxAgeDays" :min="1" :max="365" placeholder="30" />
           </n-form-item>
-          <n-form-item label="前缀过滤">
-            <n-input v-model:value="taskConfig.prefix" placeholder="仅清理指定前缀（可选）" />
+          <n-form-item :label="t('settings.prefixFilter')">
+            <n-input v-model:value="taskConfig.prefix" :placeholder="t('settings.keyPrefixPlaceholder')" />
           </n-form-item>
         </template>
 
-        <n-form-item label="Cron 表达式">
-          <n-input v-model:value="taskForm.cron" placeholder="例如: 0 8 * * *" />
+        <n-form-item :label="t('settings.cronExpr')">
+          <n-input v-model:value="taskForm.cron" :placeholder="t('settings.cronPlaceholder')" />
         </n-form-item>
         <n-text depth="3" style="display: block; margin: -8px 0 0 100px; font-size: 12px">
-          格式: 分 时 日 月 周 | 例: 0 8 * * * (每天8点), */30 * * * * (每30分钟), 0 0 * * 1 (每周一)
+          {{ t('settings.cronHint') }}
         </n-text>
       </n-form>
       <template #action>
-        <n-button @click="showTaskModal = false">取消</n-button>
-        <n-button type="primary" :loading="taskSaving" @click="handleSaveTask">保存</n-button>
+        <n-button @click="showTaskModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="taskSaving" @click="handleSaveTask">{{ t('common.save') }}</n-button>
       </template>
     </n-modal>
 
     <!-- Catalog Sources -->
-    <n-card title="Catalog 源管理" size="small" style="margin-bottom: 16px">
+    <n-card :title="t('settings.catalogSources')" size="small" style="margin-bottom: 16px">
       <template #header-extra>
-        <n-button size="small" type="primary" @click="openAddSource">添加源</n-button>
+        <n-button size="small" type="primary" @click="openAddSource">{{ t('settings.addSource') }}</n-button>
       </template>
       <n-spin :show="sourceLoading">
         <n-list hoverable>
@@ -181,87 +180,87 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
               <div>
                 <n-space align="center">
-                  <n-tag v-if="s.is_default" size="tiny" type="primary">默认</n-tag>
-                  <n-tag :type="s.enabled ? 'success' : 'default'" size="tiny">{{ s.enabled ? '启用' : '禁用' }}</n-tag>
+                  <n-tag v-if="s.is_default" size="tiny" type="primary">{{ t('settings.default') }}</n-tag>
+                  <n-tag :type="s.enabled ? 'success' : 'default'" size="tiny">{{ s.enabled ? t('settings.enabled') : t('settings.disabled') }}</n-tag>
                   <span>{{ s.name }}</span>
                   <span style="color: var(--text-color-3); font-size: 12px">{{ s.url }}</span>
                 </n-space>
                 <div style="font-size: 12px; color: var(--text-color-3); margin-top: 4px">
                   <span v-if="s.last_status === 'ok'">✓ {{ s.last_synced }}</span>
                   <span v-else-if="s.last_status === 'error'" style="color: var(--error-color)">✗ {{ s.last_error }}</span>
-                  <span v-else>待同步</span>
+                  <span v-else>{{ t('settings.waitingSync') }}</span>
                 </div>
               </div>
               <n-space>
-                <n-button size="tiny" @click="toggleSource(s)">{{ s.enabled ? '禁用' : '启用' }}</n-button>
-                <n-button v-if="!s.is_default" size="tiny" @click="openEditSource(s)">编辑</n-button>
-                <n-button v-if="!s.is_default" size="tiny" type="error" quaternary @click="deleteSource(s)">删除</n-button>
+                <n-button size="tiny" @click="toggleSource(s)">{{ s.enabled ? t('settings.disable') : t('settings.enable') }}</n-button>
+                <n-button v-if="!s.is_default" size="tiny" @click="openEditSource(s)">{{ t('settings.edit') }}</n-button>
+                <n-button v-if="!s.is_default" size="tiny" type="error" quaternary @click="deleteSource(s)">{{ t('settings.delete') }}</n-button>
               </n-space>
             </div>
           </n-list-item>
         </n-list>
-        <n-empty v-if="!catalogSources.length && !sourceLoading" description="暂无源" />
+        <n-empty v-if="!catalogSources.length && !sourceLoading" :description="t('settings.noSources')" />
       </n-spin>
     </n-card>
 
     <!-- Add Source Modal -->
-    <n-modal v-model:show="showAddSource" preset="card" title="添加 Catalog 源" style="width: 400px; max-width: 95vw">
+    <n-modal v-model:show="showAddSource" preset="card" :title="t('settings.addSourceTitle')" style="width: 400px; max-width: 95vw">
       <n-form label-placement="top" size="small">
         <n-form-item label="URL" required>
           <n-input-group>
             <n-input v-model:value="newSourceUrl" placeholder="https://..." clearable @keyup.enter="() => testSource(newSourceUrl)" />
-            <n-button :loading="testingSource" :disabled="!newSourceUrl" @click="() => testSource(newSourceUrl)">测试</n-button>
+            <n-button :loading="testingSource" :disabled="!newSourceUrl" @click="() => testSource(newSourceUrl)">{{ t('settings.test') }}</n-button>
           </n-input-group>
           <n-text v-if="sourceTestResult" :type="sourceTestResult.ok ? 'success' : 'error'" depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            <template v-if="sourceTestResult.ok">✓ 可用，包含 {{ sourceTestResult.templateCount }} 个模板</template>
+            <template v-if="sourceTestResult.ok">✓ {{ t('settings.available', { count: sourceTestResult.templateCount }) }}</template>
             <template v-else>✗ {{ sourceTestResult.error }}</template>
           </n-text>
         </n-form-item>
-        <n-form-item label="别名" required>
-          <n-input v-model:value="newSourceName" placeholder="如：社区源" />
+        <n-form-item :label="t('settings.alias')" required>
+          <n-input v-model:value="newSourceName" :placeholder="t('settings.aliasPlaceholder')" />
         </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="showAddSource = false">取消</n-button>
-          <n-button type="primary" :loading="addingSource" :disabled="!sourceTestResult?.ok" @click="addSource">添加</n-button>
+          <n-button @click="showAddSource = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" :loading="addingSource" :disabled="!sourceTestResult?.ok" @click="addSource">{{ t('common.add') }}</n-button>
         </n-space>
       </template>
     </n-modal>
 
     <!-- Edit Source Modal -->
-    <n-modal v-model:show="showEditSource" preset="card" title="编辑 Catalog 源" style="width: 400px; max-width: 95vw">
+    <n-modal v-model:show="showEditSource" preset="card" :title="t('settings.editSourceTitle')" style="width: 400px; max-width: 95vw">
       <n-form label-placement="top" size="small">
         <n-form-item label="URL" required>
           <n-input-group>
             <n-input v-model:value="editSourceUrl" placeholder="https://..." clearable @keyup.enter="() => testSource(editSourceUrl)" />
-            <n-button :loading="testingSource" :disabled="!editSourceUrl" @click="() => testSource(editSourceUrl)">测试</n-button>
+            <n-button :loading="testingSource" :disabled="!editSourceUrl" @click="() => testSource(editSourceUrl)">{{ t('settings.test') }}</n-button>
           </n-input-group>
           <n-text v-if="sourceTestResult" :type="sourceTestResult.ok ? 'success' : 'error'" depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            <template v-if="sourceTestResult.ok">✓ 可用，包含 {{ sourceTestResult.templateCount }} 个模板</template>
+            <template v-if="sourceTestResult.ok">✓ {{ t('settings.available', { count: sourceTestResult.templateCount }) }}</template>
             <template v-else>✗ {{ sourceTestResult.error }}</template>
           </n-text>
         </n-form-item>
-        <n-form-item label="别名" required>
-          <n-input v-model:value="editSourceName" placeholder="如：社区源" />
+        <n-form-item :label="t('settings.alias')" required>
+          <n-input v-model:value="editSourceName" :placeholder="t('settings.aliasPlaceholder')" />
         </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="showEditSource = false">取消</n-button>
-          <n-button type="primary" :loading="editingSource" :disabled="!editCanSave" @click="saveEditSource">保存</n-button>
+          <n-button @click="showEditSource = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" :loading="editingSource" :disabled="!editCanSave" @click="saveEditSource">{{ t('common.save') }}</n-button>
         </n-space>
       </template>
     </n-modal>
 
     <!-- 执行历史 Drawer -->
     <n-drawer v-if="!isWorkerPlatform" v-model:show="showHistoryDrawer" :width="drawerWidth(520)" placement="right">
-      <n-drawer-content :title="`执行历史 - ${historyTaskName}`" closable>
+      <n-drawer-content :title="t('settings.historyTitle', { name: historyTaskName })" closable>
         <n-spin :show="historyLoading">
           <n-timeline>
             <n-timeline-item v-for="h in taskHistory" :key="h.id" :type="h.status === 'success' ? 'success' : h.status === 'error' ? 'error' : 'info'" :title="h.status" :content="h.detail || '-'" :time="h.started_at ? formatCN(h.started_at) : '-'" />
           </n-timeline>
-          <n-empty v-if="!taskHistory.length && !historyLoading" description="暂无执行记录" />
+          <n-empty v-if="!taskHistory.length && !historyLoading" :description="t('settings.noHistory')" />
         </n-spin>
       </n-drawer-content>
     </n-drawer>
@@ -270,6 +269,7 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { NButton, NSpace, NTag, NSwitch, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { settingsApi } from '../api/settings';
@@ -280,6 +280,7 @@ import { useAccountStore } from '../stores/accountStore';
 import { formatCN } from '../utils/dateFormat';
 import { storeApi } from '../api/store';
 
+const { t } = useI18n();
 const message = useMessage();
 
 function drawerWidth(desktopWidth: number): number {
@@ -341,9 +342,9 @@ async function toggleProxy(enabled: boolean) {
   try {
     const { data } = await apiClient.put('/settings/proxy', { proxy_enabled: enabled });
     proxyEnabled.value = !!data.proxy_enabled;
-    message.success(enabled ? '代理已启用' : '代理已关闭');
+    message.success(enabled ? t('settings.msg.proxyEnabled') : t('settings.msg.proxyDisabled'));
   } catch {
-    message.error('切换代理失败');
+    message.error(t('settings.msg.proxySaveFailed'));
   } finally {
     proxyToggling.value = false;
   }
@@ -354,9 +355,9 @@ async function saveProxy() {
   try {
     const { data } = await apiClient.put('/settings/proxy', { proxy_url: proxyUrl.value });
     proxyEnabled.value = !!data.proxy_enabled;
-    message.success('代理设置已保存');
+    message.success(t('settings.msg.proxySaved'));
   } catch {
-    message.error('保存代理设置失败');
+    message.error(t('settings.msg.proxySaveSettingsFailed'));
   } finally {
     proxySaving.value = false;
   }
@@ -367,10 +368,10 @@ async function testProxy() {
   proxyTesting.value = true;
   try {
     const { data } = await settingsApi.testProxy(proxyUrl.value);
-    message.success(`代理可用！延迟 ${data.latency_ms}ms，HTTP ${data.status}`);
+    message.success(t('settings.msg.proxyAvailable', { latency: data.latency_ms, status: data.status }));
   } catch (err: any) {
-    const msg = err?.response?.data?.error?.message || err?.message || '连接失败';
-    message.error(`代理不可用：${msg}`);
+    const msg = err?.response?.data?.error?.message || err?.message || 'error';
+    message.error(t('settings.msg.proxyUnavailable', { error: msg }));
   } finally {
     proxyTesting.value = false;
   }
@@ -382,9 +383,9 @@ async function toggleResin(enabled: boolean) {
   try {
     const { data } = await settingsApi.saveResin({ enabled });
     resinEnabled.value = !!data.enabled;
-    message.success(enabled ? 'Resin 代理池已启用' : 'Resin 代理池已关闭');
+    message.success(enabled ? t('settings.msg.resinEnabled') : t('settings.msg.resinDisabled'));
   } catch {
-    message.error('切换 Resin 失败');
+    message.error(t('settings.msg.resinToggleFailed'));
   } finally {
     resinToggling.value = false;
   }
@@ -405,9 +406,9 @@ async function saveResin() {
     resinEnabled.value = !!data.enabled;
     resinDashboardUrl.value = data.url || resinUrlInput.value;
     resinTokenInput.value = ''; // 清空 Token 输入框
-    message.success('Resin 设置已保存');
+    message.success(t('settings.msg.resinSaved'));
   } catch {
-    message.error('保存 Resin 设置失败');
+    message.error(t('settings.msg.resinSaveFailed'));
   } finally {
     resinSaving.value = false;
   }
@@ -426,10 +427,10 @@ async function testResin() {
     }
     await settingsApi.saveResin(cfg);
     const { data } = await settingsApi.testResin();
-    message.success(`Resin 连接成功！延迟 ${data.latency_ms}ms，HTTP ${data.status}`);
+    message.success(t('settings.msg.resinConnected', { latency: data.latency_ms, status: data.status }));
   } catch (err: any) {
-    const msg = err?.response?.data?.error?.message || err?.message || '连接失败';
-    message.error(`Resin 连接失败：${msg}`);
+    const msg = err?.response?.data?.error?.message || err?.message || 'error';
+    message.error(t('settings.msg.resinConnectFailed', { error: msg }));
   } finally {
     resinTesting.value = false;
   }
@@ -439,7 +440,7 @@ async function handleClearCache() {
   clearing.value = true;
   try {
     await settingsApi.clearCache();
-    message.success('缓存已清除');
+    message.success(t('settings.msg.cacheCleared'));
   } finally {
     clearing.value = false;
   }
@@ -458,21 +459,21 @@ const historyTaskName = ref('');
 const taskHistory = ref<any[]>([]);
 const historyLoading = ref(false);
 
-const taskTypeOptions = [
-  { label: '配额使用报告（未实现）', value: 'quota_report' },
-  { label: 'KV 过期清理（未实现）', value: 'kv_cleanup' },
-  { label: 'D1 数据库备份（未实现）', value: 'd1_backup' },
-  { label: 'R2 过期文件清理（未实现）', value: 'r2_cleanup' },
-];
+const taskTypeOptions = computed(() => [
+  { label: t('settings.taskTypes.quotaReport'), value: 'quota_report' },
+  { label: t('settings.taskTypes.kvCleanup'), value: 'kv_cleanup' },
+  { label: t('settings.taskTypes.d1Backup'), value: 'd1_backup' },
+  { label: t('settings.taskTypes.r2Cleanup'), value: 'r2_cleanup' },
+]);
 
-const taskTypeDescMap: Record<string, string> = {
-  quota_report: '[未实现] 定期检查 Workers / Pages 的请求量配额，生成使用报告',
-  kv_cleanup: '[未实现] 清理指定 KV 命名空间中过期或指定前缀的 key',
-  d1_backup: '[未实现] 对指定 D1 数据库执行导出备份',
-  r2_cleanup: '[未实现] 删除指定 R2 存储桶中超过保留天数的文件',
-};
+const taskTypeDescMap = computed<Record<string, string>>(() => ({
+  quota_report: t('settings.taskTypeDesc.quotaReport'),
+  kv_cleanup: t('settings.taskTypeDesc.kvCleanup'),
+  d1_backup: t('settings.taskTypeDesc.d1Backup'),
+  r2_cleanup: t('settings.taskTypeDesc.r2Cleanup'),
+}));
 
-const currentTypeDesc = computed(() => taskTypeDescMap[taskForm.value.type] || '');
+const currentTypeDesc = computed(() => taskTypeDescMap.value[taskForm.value.type] || '');
 const taskNeedsAccount = computed(() => ['kv_cleanup', 'd1_backup', 'r2_cleanup'].includes(taskForm.value.type));
 
 const accountOptions = computed(() =>
@@ -518,7 +519,7 @@ function openTaskModal(task?: any) {
 
 async function handleSaveTask() {
   if (!taskForm.value.name || !taskForm.value.cron) {
-    message.warning('请填写完整信息');
+    message.warning(t('settings.msg.infoRequired'));
     return;
   }
   taskSaving.value = true;
@@ -526,10 +527,10 @@ async function handleSaveTask() {
     const payload = { ...taskForm.value, config: taskNeedsAccount.value ? taskConfig.value : undefined };
     if (editingTaskId.value) {
       await tasksApi.update(editingTaskId.value, payload);
-      message.success('任务已更新');
+      message.success(t('settings.msg.taskUpdated'));
     } else {
       await tasksApi.create(payload);
-      message.success('任务已创建');
+      message.success(t('settings.msg.taskCreated'));
     }
     showTaskModal.value = false;
     fetchTasks();
@@ -540,13 +541,13 @@ async function handleSaveTask() {
 
 async function handleDeleteTask(row: any) {
   await tasksApi.delete(row.id);
-  message.success('任务已删除');
+  message.success(t('settings.msg.taskDeleted'));
   fetchTasks();
 }
 
 async function handleRunTask(row: any) {
   await tasksApi.run(row.id);
-  message.success('任务已执行');
+  message.success(t('settings.msg.taskExecuted'));
 }
 
 async function handleToggleTask(row: any, enabled: boolean) {
@@ -568,21 +569,21 @@ async function openHistory(row: any) {
   }
 }
 
-const taskColumns: DataTableColumns<any> = [
-  { title: '名称', key: 'name', minWidth: 120 },
-  { title: '类型', key: 'type', width: 120, render: (row) => h(NTag, { size: 'small' }, { default: () => taskTypeOptions.find(o => o.value === row.type)?.label || row.type }) },
+const taskColumns = computed<DataTableColumns<any>>(() => [
+  { title: t('common.name'), key: 'name', minWidth: 120 },
+  { title: t('common.type'), key: 'type', width: 120, render: (row) => h(NTag, { size: 'small' }, { default: () => taskTypeOptions.value.find(o => o.value === row.type)?.label || row.type }) },
   { title: 'Cron', key: 'cron', width: 140 },
-  { title: '启用', key: 'enabled', width: 80, render: (row) => h(NSwitch, { value: !!row.enabled, onUpdateValue: (v: boolean) => handleToggleTask(row, v) }) },
+  { title: t('settings.enabled'), key: 'enabled', width: 80, render: (row) => h(NSwitch, { value: !!row.enabled, onUpdateValue: (v: boolean) => handleToggleTask(row, v) }) },
   {
-    title: '操作', key: 'actions', width: 220,
+    title: t('common.actions'), key: 'actions', width: 220,
     render: (row) => h(NSpace, null, { default: () => [
-      h(NButton, { size: 'small', onClick: () => handleRunTask(row) }, { default: () => '执行' }),
-      h(NButton, { size: 'small', onClick: () => openHistory(row) }, { default: () => '历史' }),
-      h(NButton, { size: 'small', onClick: () => openTaskModal(row) }, { default: () => '编辑' }),
-      h(NButton, { size: 'small', type: 'error', onClick: () => handleDeleteTask(row) }, { default: () => '删除' }),
+      h(NButton, { size: 'small', onClick: () => handleRunTask(row) }, { default: () => t('common.execute') }),
+      h(NButton, { size: 'small', onClick: () => openHistory(row) }, { default: () => t('common.history') }),
+      h(NButton, { size: 'small', onClick: () => openTaskModal(row) }, { default: () => t('common.edit') }),
+      h(NButton, { size: 'small', type: 'error', onClick: () => handleDeleteTask(row) }, { default: () => t('common.delete') }),
     ]}),
   },
-];
+]);
 
 // ============ Catalog Sources ============
 const sourceLoading = ref(false);
@@ -640,12 +641,12 @@ async function testSource(targetUrl: string) {
   try {
     const { data } = await storeApi.testSource(targetUrl);
     sourceTestResult.value = data;
-    if (data.ok) message.success(`可用，包含 ${data.templateCount} 个模板`);
-    else message.error(`测试失败：${data.error}`);
+    if (data.ok) message.success(t('settings.msg.sourceTestOk', { count: data.templateCount }));
+    else message.error(t('settings.msg.sourceTestFailed', { error: data.error }));
   } catch (err: any) {
-    const msg = err?.response?.data?.error || err?.message || '测试失败';
+    const msg = err?.response?.data?.error || err?.message || t('settings.msg.testFailed');
     sourceTestResult.value = { ok: false, error: typeof msg === 'string' ? msg : JSON.stringify(msg) };
-    message.error(`测试失败：${sourceTestResult.value.error}`);
+    message.error(t('settings.msg.sourceTestFailed', { error: sourceTestResult.value.error }));
   } finally {
     testingSource.value = false;
   }
@@ -656,7 +657,7 @@ async function addSource() {
   addingSource.value = true;
   try {
     await storeApi.addSource(newSourceUrl.value, newSourceName.value);
-    message.success('添加成功');
+    message.success(t('settings.msg.sourceAdded'));
     showAddSource.value = false;
     newSourceUrl.value = '';
     newSourceName.value = '';
@@ -672,7 +673,7 @@ async function saveEditSource() {
   editingSource.value = true;
   try {
     await storeApi.updateSource(editSourceId.value, { url: editSourceUrl.value, name: editSourceName.value });
-    message.success('已保存');
+    message.success(t('settings.msg.sourceSaved'));
     showEditSource.value = false;
     sourceTestResult.value = null;
     await loadSources();
@@ -691,7 +692,7 @@ async function toggleSource(s: any) {
 async function deleteSource(s: any) {
   try {
     await storeApi.deleteSource(s.id);
-    message.success('已删除');
+    message.success(t('settings.msg.sourceDeleted'));
     await loadSources();
   } catch {}
 }

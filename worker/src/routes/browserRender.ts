@@ -1,9 +1,9 @@
-﻿import { Hono } from 'hono';
+﻿﻿import { Hono } from 'hono';
 import type { Env } from '../types';
 import { getAccountById, addAuditLog } from '../db/models';
 import { getAuthHeaders } from '../services/cfApi';
 import { trackUsage } from '../services/quotaTracker';
-import { acquireToken, markAccountExhausted, type AcquireResult } from '../services/browserRateLimiter';
+import { acquireToken, markAccountExhausted, getBrowserRenderStatus, type AcquireResult } from '../services/browserRateLimiter';
 import { logger } from '../services/logger';
 
 type RenderMode = 'screenshot' | 'content' | 'markdown' | 'pdf' | 'links';
@@ -245,6 +245,29 @@ app.post('/', async (c) => {
 
   const outcome = await handleRender(url, mode, c.env, accountId);
   return c.json(outcome.body, outcome.status as any);
+});
+
+// ============ 外部 API 端点（与 backend externalBrowserRender 对称） ============
+
+// POST /render — 外部渲染请求（不经过 responseWrapper）
+app.post('/render', async (c) => {
+  const { url, mode = 'screenshot', accountId } = await c.req.json();
+
+  if (!url || typeof url !== 'string') {
+    return c.json({ error: { message: 'url is required', code: 'INVALID_REQUEST' } }, 400);
+  }
+  if (!VALID_MODES.includes(mode)) {
+    return c.json({ error: { message: `Invalid mode: ${mode}. Supported: ${VALID_MODES.join(', ')}`, code: 'INVALID_MODE' } }, 400);
+  }
+
+  const outcome = await handleRender(url, mode, c.env, accountId);
+  return c.json(outcome.body, outcome.status as any);
+});
+
+// GET /status — 浏览器渲染配额状态
+app.get('/status', async (c) => {
+  const status = await getBrowserRenderStatus(c.env);
+  return c.json(status);
 });
 
 export default app;

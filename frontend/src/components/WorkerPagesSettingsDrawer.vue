@@ -1,21 +1,21 @@
 <template>
   <n-drawer v-model:show="visible" :width="drawerWidth(860)" placement="right">
-    <n-drawer-content :title="`设置 - ${workerName} (pages)`" closable>
+    <n-drawer-content :title="t('pagesSettings.drawerTitle', { name: workerName })" closable>
       <n-tabs type="line" animated>
         <!-- Pages 项目信息 -->
-        <n-tab-pane name="pagesInfo" tab="项目信息">
+        <n-tab-pane name="pagesInfo" :tab="t('pagesSettings.tabs.info')">
           <n-space vertical>
-            <n-text depth="3">Pages 项目基本信息</n-text>
+            <n-text depth="3">{{ t('pagesSettings.infoHint') }}</n-text>
             <n-spin :show="pagesProjectLoading">
               <n-card size="small" v-if="pagesProject">
                 <n-descriptions label-placement="left" :column="1" bordered>
-                  <n-descriptions-item label="名称">{{ pagesProject.name }}</n-descriptions-item>
+                  <n-descriptions-item :label="t('pagesSettings.name')">{{ pagesProject.name }}</n-descriptions-item>
                   <n-descriptions-item label="ID">{{ pagesProject.id }}</n-descriptions-item>
-                  <n-descriptions-item label="生产分支">{{ pagesProject.production_branch }}</n-descriptions-item>
-                  <n-descriptions-item label="框架">{{ pagesProject.framework || '-' }}</n-descriptions-item>
-                  <n-descriptions-item label="子域名">{{ pagesProject.subdomain || '-' }}</n-descriptions-item>
-                  <n-descriptions-item label="创建时间">{{ pagesProject.created_on ? formatCN(pagesProject.created_on) : '-' }}</n-descriptions-item>
-                  <n-descriptions-item label="Functions">{{ pagesProject.uses_functions ? '是' : '否' }}</n-descriptions-item>
+                  <n-descriptions-item :label="t('pagesSettings.productionBranch')">{{ pagesProject.production_branch }}</n-descriptions-item>
+                  <n-descriptions-item :label="t('pagesSettings.framework')">{{ pagesProject.framework || '-' }}</n-descriptions-item>
+                  <n-descriptions-item :label="t('pagesSettings.subdomain')">{{ pagesProject.subdomain || '-' }}</n-descriptions-item>
+                  <n-descriptions-item :label="t('pagesSettings.createdTime')">{{ pagesProject.created_on ? formatCN(pagesProject.created_on) : '-' }}</n-descriptions-item>
+                  <n-descriptions-item :label="t('pagesSettings.functions')">{{ pagesProject.uses_functions ? t('common.yes') : t('common.no') }}</n-descriptions-item>
                 </n-descriptions>
               </n-card>
             </n-spin>
@@ -23,11 +23,11 @@
         </n-tab-pane>
 
         <!-- Pages 自定义域名 -->
-        <n-tab-pane name="pagesDomains" tab="自定义域名">
+        <n-tab-pane name="pagesDomains" :tab="t('pagesSettings.tabs.domains')">
           <n-space vertical>
             <n-space justify="space-between">
-              <n-text depth="3">绑定自定义域名到 Pages 项目</n-text>
-              <n-button size="small" type="primary" @click="openPagesDomainModal">添加域名</n-button>
+              <n-text depth="3">{{ t('pagesSettings.domainsHint') }}</n-text>
+              <n-button size="small" type="primary" @click="openPagesDomainModal">{{ t('pagesSettings.addDomain') }}</n-button>
             </n-space>
             <n-spin :show="pagesDomainsLoading">
               <n-data-table :columns="pagesDomainColumns" :data="pagesDomains" :bordered="false" size="small" :scroll-x="500" />
@@ -36,11 +36,11 @@
         </n-tab-pane>
 
         <!-- Pages 环境变量 -->
-        <n-tab-pane name="pagesEnvVars" tab="环境变量">
+        <n-tab-pane name="pagesEnvVars" :tab="t('pagesSettings.tabs.envVars')">
           <n-space vertical>
             <n-space justify="space-between">
-              <n-text depth="3">生产环境变量</n-text>
-              <n-button size="small" type="primary" @click="pagesEnvEditing = false; pagesEnvForm = { name: '', value: '', type: 'plain_text' }; showPagesEnvModal = true">添加变量</n-button>
+              <n-text depth="3">{{ t('pagesSettings.envVarsHint') }}</n-text>
+              <n-button size="small" type="primary" @click="pagesEnvEditing = false; pagesEnvForm = { name: '', value: '', type: 'plain_text' }; showPagesEnvModal = true">{{ t('pagesSettings.addVar') }}</n-button>
             </n-space>
             <n-spin :show="pagesProjectLoading">
               <n-data-table :columns="pagesEnvColumns" :data="pagesEnvVars" :bordered="false" size="small" :scroll-x="500" />
@@ -49,11 +49,11 @@
         </n-tab-pane>
 
         <!-- Pages 绑定 -->
-        <n-tab-pane name="pagesBindings" tab="绑定">
+        <n-tab-pane name="pagesBindings" :tab="t('pagesSettings.tabs.bindings')">
           <n-space vertical>
             <n-space justify="space-between">
-              <n-text depth="3">Pages Functions 可用资源绑定</n-text>
-              <n-button size="small" type="primary" @click="openBindingModal">添加绑定</n-button>
+              <n-text depth="3">{{ t('pagesSettings.bindingsHint') }}</n-text>
+              <n-button size="small" type="primary" @click="openBindingModal">{{ t('pagesSettings.addBinding') }}</n-button>
             </n-space>
             <n-spin :show="bindingsLoading">
               <n-data-table :columns="bindingsColumns" :data="bindingsList" :bordered="false" size="small" :scroll-x="500" />
@@ -62,13 +62,13 @@
         </n-tab-pane>
 
         <!-- Pages 部署历史 -->
-        <n-tab-pane name="pagesDeployments" tab="部署历史">
+        <n-tab-pane name="pagesDeployments" :tab="t('pagesSettings.tabs.deployments')">
           <n-space vertical>
             <n-space justify="space-between">
-              <n-text depth="3">查看 Pages 部署记录</n-text>
+              <n-text depth="3">{{ t('pagesSettings.deploymentsHint') }}</n-text>
               <n-space>
-                <n-button size="small" @click="checkAllCurrentPage">全选当前页</n-button>
-                <n-button size="small" @click="checkedDeploymentIds = []">取消全选</n-button>
+                <n-button size="small" @click="checkAllCurrentPage">{{ t('pagesSettings.selectAllPage') }}</n-button>
+                <n-button size="small" @click="checkedDeploymentIds = []">{{ t('pagesSettings.deselectAll') }}</n-button>
                 <n-button
                   size="small"
                   type="error"
@@ -76,9 +76,9 @@
                   :loading="batchDeleting"
                   @click="showBatchDeleteModal = true"
                 >
-                  删除选中 ({{ checkedDeploymentIds.length }})
+                  {{ t('pagesSettings.deleteSelected', { count: checkedDeploymentIds.length }) }}
                 </n-button>
-                <n-button size="small" @click="loadPagesDeployments" :loading="pagesDeploymentsLoading">刷新</n-button>
+                <n-button size="small" @click="loadPagesDeployments" :loading="pagesDeploymentsLoading">{{ t('common.refresh') }}</n-button>
               </n-space>
             </n-space>
             <n-spin :show="pagesDeploymentsLoading">
@@ -101,69 +101,69 @@
   </n-drawer>
 
   <!-- Pages Domain Modal -->
-  <n-modal v-model:show="showPagesDomainModal" preset="dialog" title="添加 Pages 域名" style="width: 520px; max-width: 95vw">
+  <n-modal v-model:show="showPagesDomainModal" preset="dialog" :title="t('pagesSettings.domainModalTitle')" style="width: 520px; max-width: 95vw">
     <n-form label-placement="left" label-width="80">
-      <n-form-item label="域名">
+      <n-form-item :label="t('pagesSettings.domain')">
         <n-select
           v-model:value="pagesDomainHostname"
           :options="managedDomainOptions"
           filterable
           tag
-          placeholder="选择 Zone 或输入完整域名"
+          :placeholder="t('pagesSettings.domainPlaceholder')"
           :loading="managedDomainsLoading"
         />
       </n-form-item>
-      <n-form-item v-if="isPagesZoneSelected" label="子域名">
+      <n-form-item v-if="isPagesZoneSelected" :label="t('pagesSettings.subdomain')">
         <n-input-group>
-          <n-input v-model:value="pagesDomainSubdomain" placeholder="留空绑定根域名" />
+          <n-input v-model:value="pagesDomainSubdomain" :placeholder="t('pagesSettings.subdomainPlaceholder')" />
           <n-input :value="`.${pagesDomainHostname}`" disabled style="width: 40%" />
         </n-input-group>
       </n-form-item>
-      <n-form-item v-if="composedPagesHostname" label="预览">
+      <n-form-item v-if="composedPagesHostname" :label="t('pagesSettings.preview')">
         <n-tag type="info" size="large">{{ composedPagesHostname }}</n-tag>
       </n-form-item>
     </n-form>
     <template #action>
-      <n-button @click="showPagesDomainModal = false">取消</n-button>
-      <n-button type="primary" :loading="pagesDomainSaving" @click="handleAddPagesDomain">保存</n-button>
+      <n-button @click="showPagesDomainModal = false">{{ t('common.cancel') }}</n-button>
+      <n-button type="primary" :loading="pagesDomainSaving" @click="handleAddPagesDomain">{{ t('common.save') }}</n-button>
     </template>
   </n-modal>
 
   <!-- Pages Env Var Modal -->
-  <n-modal v-model:show="showPagesEnvModal" preset="dialog" :title="pagesEnvEditing ? '编辑 Pages 环境变量' : '添加 Pages 环境变量'" style="width: 450px; max-width: 95vw">
+  <n-modal v-model:show="showPagesEnvModal" preset="dialog" :title="pagesEnvEditing ? t('pagesSettings.envModalTitleEdit') : t('pagesSettings.envModalTitleAdd')" style="width: 450px; max-width: 95vw">
     <n-form :model="pagesEnvForm" label-placement="left" label-width="80">
-      <n-form-item label="名称">
-        <n-input v-model:value="pagesEnvForm.name" placeholder="环境变量名" :disabled="pagesEnvEditing" />
+      <n-form-item :label="t('pagesSettings.varName')">
+        <n-input v-model:value="pagesEnvForm.name" :placeholder="t('pagesSettings.varNamePlaceholder')" :disabled="pagesEnvEditing" />
       </n-form-item>
-      <n-form-item label="值">
-        <n-input v-model:value="pagesEnvForm.value" placeholder="变量值" />
+      <n-form-item :label="t('pagesSettings.varValue')">
+        <n-input v-model:value="pagesEnvForm.value" :placeholder="t('pagesSettings.varValuePlaceholder')" />
       </n-form-item>
-      <n-form-item label="类型">
-        <n-select v-model:value="pagesEnvForm.type" :options="[{label:'明文',value:'plain_text'},{label:'加密',value:'secret_text'}]" />
+      <n-form-item :label="t('pagesSettings.varType')">
+        <n-select v-model:value="pagesEnvForm.type" :options="envTypeOptions" />
       </n-form-item>
     </n-form>
     <template #action>
-      <n-button @click="showPagesEnvModal = false">取消</n-button>
-      <n-button type="primary" :loading="pagesEnvSaving" @click="handleAddPagesEnv">保存</n-button>
+      <n-button @click="showPagesEnvModal = false">{{ t('common.cancel') }}</n-button>
+      <n-button type="primary" :loading="pagesEnvSaving" @click="handleAddPagesEnv">{{ t('common.save') }}</n-button>
     </template>
   </n-modal>
 
   <!-- Pages Binding Modal -->
-  <n-modal v-model:show="showBindingModal" preset="dialog" title="添加资源绑定" style="width: 500px; max-width: 95vw">
+  <n-modal v-model:show="showBindingModal" preset="dialog" :title="t('pagesSettings.bindingModalTitle')" style="width: 500px; max-width: 95vw">
     <n-form :model="bindingForm" label-placement="left" label-width="80">
-      <n-form-item label="类型">
+      <n-form-item :label="t('pagesSettings.bindingType')">
         <n-select v-model:value="bindingForm.type" :options="bindingTypeOptions" @update:value="onBindingTypeChange" />
       </n-form-item>
-      <n-form-item label="变量名">
-        <n-input v-model:value="bindingForm.name" placeholder="代码中引用的变量名，如 MY_KV" />
+      <n-form-item :label="t('pagesSettings.bindingName')">
+        <n-input v-model:value="bindingForm.name" :placeholder="t('pagesSettings.bindingNamePlaceholder')" />
       </n-form-item>
-      <n-form-item label="资源">
-        <n-select v-model:value="bindingForm.value" :options="bindingResourceOptions" :loading="bindingResourcesLoading" filterable placeholder="选择资源" />
+      <n-form-item :label="t('pagesSettings.bindingResource')">
+        <n-select v-model:value="bindingForm.value" :options="bindingResourceOptions" :loading="bindingResourcesLoading" filterable :placeholder="t('pagesSettings.bindingResourcePlaceholder')" />
       </n-form-item>
     </n-form>
     <template #action>
-      <n-button @click="showBindingModal = false">取消</n-button>
-      <n-button type="primary" :loading="bindingSaving" @click="handleAddBinding">保存</n-button>
+      <n-button @click="showBindingModal = false">{{ t('common.cancel') }}</n-button>
+      <n-button type="primary" :loading="bindingSaving" @click="handleAddBinding">{{ t('common.save') }}</n-button>
     </template>
   </n-modal>
 
@@ -171,29 +171,32 @@
   <n-modal
     v-model:show="showBatchDeleteModal"
     preset="dialog"
-    title="批量删除部署记录"
-    positive-text="删除"
-    negative-text="取消"
+    :title="t('pagesSettings.batchDeleteTitle')"
+    :positive-text="t('common.delete')"
+    :negative-text="t('common.cancel')"
     :positive-button-props="{ type: 'error' }"
     :loading="batchDeleting"
     @positive-click="handleBatchDeleteDeployments"
   >
     <n-space vertical>
       <div v-if="checkedProductionCount > 0" style="color: #d97706; font-weight: 500; padding: 8px 12px; background: #fef3c7; border-radius: 4px; border: 1px solid #fcd34d;">
-        ⚠ 包含 {{ checkedProductionCount }} 条生产环境部署，删除后无法恢复！
+        {{ t('pagesSettings.batchDeleteWarning', { count: checkedProductionCount }) }}
       </div>
-      <div>确定删除选中的 <strong>{{ checkedDeploymentIds.length }}</strong> 条部署记录吗？此操作不可撤销。</div>
+      <div v-html="t('pagesSettings.batchDeleteConfirm', { count: checkedDeploymentIds.length })"></div>
     </n-space>
   </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, h } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { NTag, NSpace, NButton, NA, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { workersApi } from '../api/workers';
 import { formatCN } from '../utils/dateFormat';
 import { isDemoAccount } from '../utils/demoAccounts';
+
+const { t } = useI18n();
 
 interface WorkerProp {
   name: string;
@@ -246,6 +249,11 @@ const pagesEnvEditing = ref(false);
 const pagesEnvForm = ref({ name: '', value: '', type: 'plain_text' });
 const pagesEnvSaving = ref(false);
 
+const envTypeOptions = computed(() => [
+  { label: t('pagesSettings.plainText'), value: 'plain_text' },
+  { label: t('pagesSettings.secretText'), value: 'secret_text' },
+]);
+
 // ============ Pages Bindings ============
 const bindingsLoading = ref(false);
 const bindingsList = ref<any[]>([]);
@@ -257,11 +265,11 @@ const bindingResourcesLoading = ref(false);
 const r2Available = ref(true);
 const bindingTypeOptions = computed(() => {
   const options = [
-    { label: 'KV 命名空间', value: 'kv_namespaces' },
-    { label: 'D1 数据库', value: 'd1_databases' },
+    { label: t('pagesSettings.bindingTypes.kv'), value: 'kv_namespaces' },
+    { label: t('pagesSettings.bindingTypes.d1'), value: 'd1_databases' },
   ];
   if (r2Available.value) {
-    options.push({ label: 'R2 存储桶', value: 'r2_buckets' });
+    options.push({ label: t('pagesSettings.bindingTypes.r2'), value: 'r2_buckets' });
   }
   return options;
 });
@@ -361,7 +369,7 @@ async function openBindingModal() {
 async function onBindingTypeChange(type: string) {
   bindingForm.value.value = '';
   if (type === 'r2_buckets' && !r2Available.value) {
-    message.warning('当前账户未启用 R2，请先在 Cloudflare 控制台启用');
+    message.warning(t('pagesSettings.msg.r2NotEnabled'));
     bindingForm.value.type = 'kv_namespaces';
     return;
   }
@@ -382,7 +390,7 @@ async function loadBindingResources(type: string) {
   } catch (err: any) {
     const msg = err?.response?.data?.error?.message || err?.message || '';
     if (type === 'r2_buckets' && (msg.includes('10042') || msg.includes('Please enable R2'))) {
-      message.warning('当前账户未启用 R2，请先在 Cloudflare 控制台启用');
+      message.warning(t('pagesSettings.msg.r2NotEnabled'));
       r2Available.value = false;
     }
     bindingResources.value = [];
@@ -391,8 +399,8 @@ async function loadBindingResources(type: string) {
 }
 
 async function handleAddBinding() {
-  if (!bindingForm.value.name) { message.warning('请填写变量名'); return; }
-  if (!bindingForm.value.value) { message.warning('请选择资源'); return; }
+  if (!bindingForm.value.name) { message.warning(t('pagesSettings.msg.varNameRequired')); return; }
+  if (!bindingForm.value.value) { message.warning(t('pagesSettings.msg.resourceRequired')); return; }
   bindingSaving.value = true;
   try {
     const { data } = await workersApi.getPagesProject(accountId.value, workerName.value);
@@ -410,7 +418,7 @@ async function handleAddBinding() {
       production: { ...production, [type]: updated },
       preview: { ...preview, [type]: updated },
     });
-    message.success('绑定已添加');
+    message.success(t('pagesSettings.msg.bindingAdded'));
     showBindingModal.value = false;
     loadBindings();
   } finally { bindingSaving.value = false; }
@@ -428,7 +436,7 @@ async function handleDeleteBinding(row: any) {
     production: { ...production, [row.typeKey]: val },
     preview: { ...preview, [row.typeKey]: val },
   });
-  message.success('绑定已删除');
+  message.success(t('pagesSettings.msg.bindingDeleted'));
   loadBindings();
 }
 const pagesDeployments = ref<any[]>([]);
@@ -506,11 +514,11 @@ async function openPagesDomainModal() {
 }
 
 async function handleAddPagesDomain() {
-  if (!composedPagesHostname.value) { message.warning('请选择或输入域名'); return; }
+  if (!composedPagesHostname.value) { message.warning(t('pagesSettings.msg.domainRequired')); return; }
   pagesDomainSaving.value = true;
   try {
     await workersApi.addPagesDomain(accountId.value, workerName.value, composedPagesHostname.value);
-    message.success('域名已添加');
+    message.success(t('pagesSettings.msg.domainAdded'));
     showPagesDomainModal.value = false;
     pagesDomainHostname.value = '';
     pagesDomainSubdomain.value = '';
@@ -520,12 +528,12 @@ async function handleAddPagesDomain() {
 
 async function handleRemovePagesDomain(row: any) {
   await workersApi.removePagesDomain(accountId.value, workerName.value, row.name || row.hostname);
-  message.success('域名已删除');
+  message.success(t('pagesSettings.msg.domainDeleted'));
   loadPagesDomains();
 }
 
 async function handleAddPagesEnv() {
-  if (!pagesEnvForm.value.name) { message.warning('请填写名称'); return; }
+  if (!pagesEnvForm.value.name) { message.warning(t('pagesSettings.msg.nameRequired')); return; }
   pagesEnvSaving.value = true;
   try {
     const existingProd = pagesProject.value?.deployment_configs?.production || {};
@@ -538,7 +546,7 @@ async function handleAddPagesEnv() {
         preview: { ...existingPreview, env_vars: envVars },
       },
     });
-    message.success('环境变量已保存');
+    message.success(t('pagesSettings.msg.varSaved'));
     showPagesEnvModal.value = false;
     pagesEnvForm.value = { name: '', value: '', type: 'plain_text' };
     loadPagesProject();
@@ -553,15 +561,18 @@ function handleEditPagesEnv(row: any) {
 
 async function handleDeletePagesEnv(row: any) {
   try {
+    // CF PATCH deployment_configs.env_vars 是 merge 语义：
+    // - {key: null} → 删除该键（实测确认）
+    // - omit 键 → 保留；空对象 {} → 被 CF 忽略（均无法删除）
     await workersApi.editPagesProject(accountId.value, workerName.value, {
       deployment_configs: {
         production: { env_vars: { [row.name]: null } },
         preview: { env_vars: { [row.name]: null } },
       },
     });
-    message.success('环境变量已删除');
+    message.success(t('pagesSettings.msg.varDeleted'));
     loadPagesProject();
-  } catch (e: any) { message.error(e?.message || '删除失败'); }
+  } catch (e: any) { message.error(e?.errorMessage || e?.message || t('pagesSettings.msg.deleteFailed')); }
 }
 
 async function loadPagesDeployments() {
@@ -598,22 +609,22 @@ async function handleBatchDeleteDeployments() {
 
     if (succeeded === 0) {
       // 全部失败：展示第一条错误信息
-      const firstErr = results.find(r => r.error)?.error || '未知错误';
-      message.error(`删除失败：${firstErr}`);
+      const firstErr = results.find(r => r.error)?.error || '';
+      message.error(t('pagesSettings.msg.batchDeleteAllFailed', { error: firstErr }));
     } else if (failed > 0) {
       // 部分失败：展示错误提示
       const failedErrors = results.filter(r => !r.success).map(r => r.error).filter(Boolean);
       const firstErr = failedErrors[0] || '';
-      message.warning(`成功删除 ${succeeded} 条，${failed} 条失败${firstErr ? `（${firstErr}）` : ''}`);
+      message.warning(t('pagesSettings.msg.batchDeletePartial', { succeeded, failed, error: firstErr }));
     } else {
-      message.success(`已成功删除 ${succeeded} 条部署记录`);
+      message.success(t('pagesSettings.msg.batchDeleteSuccess', { count: succeeded }));
     }
 
     // 关闭弹窗并刷新列表
     showBatchDeleteModal.value = false;
     await loadPagesDeployments();
   } catch (e: any) {
-    const errMsg = e?.errorMessage || e?.message || '批量删除失败';
+    const errMsg = e?.errorMessage || e?.message || t('pagesSettings.msg.batchDeleteFailed');
     message.error(errMsg);
   } finally {
     batchDeleting.value = false;
@@ -621,57 +632,57 @@ async function handleBatchDeleteDeployments() {
 }
 
 // Columns
-const pagesDomainColumns: DataTableColumns<any> = [
+const pagesDomainColumns = computed<DataTableColumns<any>>(() => [
   {
-    title: '域名', key: 'name', minWidth: 180, ellipsis: { tooltip: true },
+    title: t('pagesSettings.domain'), key: 'name', minWidth: 180, ellipsis: { tooltip: true },
     render: (row) => h(NA, { href: `https://${row.name}`, target: '_blank', type: 'primary' }, { default: () => row.name }),
   },
-  { title: '状态', key: 'status', width: 100, render: (row) => h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'warning' }, { default: () => row.status || '-' }) },
+  { title: t('common.status'), key: 'status', width: 100, render: (row) => h(NTag, { size: 'small', type: row.status === 'active' ? 'success' : 'warning' }, { default: () => row.status || '-' }) },
   {
-    title: '操作', key: 'actions', width: 80,
+    title: t('common.actions'), key: 'actions', width: 80,
     render: (row) => isDemoAccount(accountId.value)
       ? null
-      : h(NButton, { size: 'tiny', type: 'error', onClick: () => handleRemovePagesDomain(row) }, { default: () => '删除' }),
+      : h(NButton, { size: 'tiny', type: 'error', onClick: () => handleRemovePagesDomain(row) }, { default: () => t('common.delete') }),
   },
-];
+]);
 
-const pagesEnvColumns: DataTableColumns<any> = [
-  { title: '名称', key: 'name', width: 120 },
-  { title: '类型', key: 'type', width: 100, render: (row) => h(NTag, { size: 'small', type: row.type === 'secret_text' ? 'warning' : 'default' }, { default: () => row.type === 'secret_text' ? '加密' : '明文' }) },
-  { title: '值', key: 'value', minWidth: 120, ellipsis: true },
-  { title: '操作', key: 'actions', width: 140, render: (row) => h(NSpace, { size: 4 }, {
+const pagesEnvColumns = computed<DataTableColumns<any>>(() => [
+  { title: t('pagesSettings.varName'), key: 'name', width: 120 },
+  { title: t('pagesSettings.varType'), key: 'type', width: 100, render: (row) => h(NTag, { size: 'small', type: row.type === 'secret_text' ? 'warning' : 'default' }, { default: () => row.type === 'secret_text' ? t('pagesSettings.secretText') : t('pagesSettings.plainText') }) },
+  { title: t('pagesSettings.varValue'), key: 'value', minWidth: 120, ellipsis: true },
+  { title: t('common.actions'), key: 'actions', width: 140, render: (row) => h(NSpace, { size: 4 }, {
     default: () => [
-      h(NButton, { size: 'tiny', onClick: () => handleEditPagesEnv(row) }, { default: () => '编辑' }),
+      h(NButton, { size: 'tiny', onClick: () => handleEditPagesEnv(row) }, { default: () => t('common.edit') }),
       ...(isDemoAccount(accountId.value) ? [] : [
-        h(NButton, { size: 'tiny', type: 'error', onClick: () => handleDeletePagesEnv(row) }, { default: () => '删除' }),
+        h(NButton, { size: 'tiny', type: 'error', onClick: () => handleDeletePagesEnv(row) }, { default: () => t('common.delete') }),
       ]),
     ],
   }) },
-];
+]);
 
-const bindingsColumns: DataTableColumns<any> = [
-  { title: '类型', key: 'type', width: 100, render: (row) => h(NTag, { size: 'small', type: row.typeKey === 'kv_namespaces' ? 'info' : row.typeKey === 'd1_databases' ? 'warning' : 'success' }, { default: () => row.type }) },
-  { title: '变量名', key: 'name', width: 120 },
-  { title: '资源', key: 'value', minWidth: 150, ellipsis: true, render: (row) => {
+const bindingsColumns = computed<DataTableColumns<any>>(() => [
+  { title: t('pagesSettings.bindingType'), key: 'type', width: 100, render: (row) => h(NTag, { size: 'small', type: row.typeKey === 'kv_namespaces' ? 'info' : row.typeKey === 'd1_databases' ? 'warning' : 'success' }, { default: () => row.type }) },
+  { title: t('pagesSettings.bindingName'), key: 'name', width: 120 },
+  { title: t('pagesSettings.bindingResource'), key: 'value', minWidth: 150, ellipsis: true, render: (row) => {
     const resolved = resolveResourceName(row.value);
     return resolved.name
       ? h(NSpace, { size: 'small', align: 'center' }, { default: () => [h('span', null, resolved.name), h(NTag, { size: 'tiny', type: 'default', style: 'opacity: 0.6' }, { default: () => resolved.id })] })
       : h('span', null, resolved.id);
   }},
-  { title: '操作', key: 'actions', width: 80, render: (row) => isDemoAccount(accountId.value)
+  { title: t('common.actions'), key: 'actions', width: 80, render: (row) => isDemoAccount(accountId.value)
     ? null
-    : h(NButton, { size: 'tiny', type: 'error', onClick: () => handleDeleteBinding(row) }, { default: () => '删除' }) },
-];
+    : h(NButton, { size: 'tiny', type: 'error', onClick: () => handleDeleteBinding(row) }, { default: () => t('common.delete') }) },
+]);
 
-const pagesDeploymentColumns: DataTableColumns<any> = [
+const pagesDeploymentColumns = computed<DataTableColumns<any>>(() => [
   { type: 'selection' as any },
   { title: 'ID', key: 'id', width: 90, ellipsis: true },
-  { title: '环境', key: 'environment', width: 90, render: (row) => h(NTag, { size: 'small', type: row.environment === 'production' ? 'success' : 'info' }, { default: () => row.environment || '-' }) },
-  { title: '状态', key: 'status', width: 80, render: (row) => h(NTag, { size: 'small', type: row.latest_stage?.status === 'success' ? 'success' : row.latest_stage?.status === 'failure' ? 'error' : 'default' }, { default: () => row.latest_stage?.status || '-' }) },
-  { title: '阶段', key: 'stage', width: 80, render: (row) => row.latest_stage?.name || '-' },
+  { title: t('pagesSettings.status'), key: 'environment', width: 90, render: (row) => h(NTag, { size: 'small', type: row.environment === 'production' ? 'success' : 'info' }, { default: () => row.environment || '-' }) },
+  { title: t('pagesSettings.status'), key: 'status', width: 80, render: (row) => h(NTag, { size: 'small', type: row.latest_stage?.status === 'success' ? 'success' : row.latest_stage?.status === 'failure' ? 'error' : 'default' }, { default: () => row.latest_stage?.status || '-' }) },
+  { title: t('pagesSettings.stage'), key: 'stage', width: 80, render: (row) => row.latest_stage?.name || '-' },
   { title: 'URL', key: 'url', minWidth: 200, render: (row) => row.url ? h('a', { href: row.url, target: '_blank', style: 'word-break: break-all; font-size: 12px;' }, row.url) : '-' },
-  { title: '创建时间', key: 'created_on', width: 200, render: (row) => row.created_on ? formatCN(row.created_on) : '-' },
-];
+  { title: t('pagesSettings.createdTime'), key: 'created_on', width: 200, render: (row) => row.created_on ? formatCN(row.created_on) : '-' },
+]);
 
 // 打开抽屉时加载数据
 watch(

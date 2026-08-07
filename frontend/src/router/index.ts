@@ -5,12 +5,12 @@ const routes = [
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
   { path: '/dns', name: 'dns', component: () => import('../views/DnsView.vue') },
   { path: '/workers', name: 'workers', component: () => import('../views/WorkersView.vue') },
-  { path: '/ai', name: 'ai', component: () => import('../views/AiView.vue') },
+  { path: '/ai', name: 'ai', component: () => import('../views/AiUnifiedView.vue') },
   { path: '/storage', name: 'storage', component: () => import('../views/StorageView.vue') },
   { path: '/browser-render', name: 'browser-render', component: () => import('../views/BrowserRenderView.vue') },
   { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
   { path: '/store', name: 'store', component: () => import('../views/StoreView.vue') },
-  { path: '/tunnels', name: 'tunnels', component: () => import('../views/TunnelsView.vue'), meta: { title: '隧道/回源' } },
+  { path: '/tunnels', name: 'tunnels', component: () => import('../views/TunnelsView.vue'), meta: { titleKey: 'menu.tunnels' } },
 ];
 
 const router = createRouter({
