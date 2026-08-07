@@ -4,6 +4,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js/lib/common';
 import DOMPurify from 'dompurify';
@@ -11,15 +12,22 @@ import 'highlight.js/styles/github-dark.css';
 
 const props = defineProps<{ content: string; baseUrl?: string; repoUrl?: string }>();
 
+const { t } = useI18n();
+
 // 图片加载失败时显示的占位图（避免破图标）
-const IMG_PLACEHOLDER =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80">' +
-      '<rect width="100%" height="100%" fill="#f5f5f5"/>' +
-      '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="13" fill="#999">图片未加载，可点「在 GitHub 查看完整 README」</text>' +
-      '</svg>',
+function buildImgPlaceholder(): string {
+  return (
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80">' +
+        '<rect width="100%" height="100%" fill="#f5f5f5"/>' +
+        '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="13" fill="#999">' +
+        t('markdownRenderer.imgPlaceholder') +
+        '</text>' +
+        '</svg>',
+    )
   );
+}
 
 // 收集相对路径图片的多个候选绝对地址：README 目录、仓库根目录、各上级目录
 function buildCandidates(raw: string | null): string[] {
@@ -129,7 +137,7 @@ watch(
           img.src = cands[idx];
         } else {
           img.onerror = null;
-          img.src = IMG_PLACEHOLDER;
+          img.src = buildImgPlaceholder();
         }
       };
     });

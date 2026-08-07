@@ -1,15 +1,15 @@
 <template>
   <div class="page-view">
-    <n-h2>模板商店</n-h2>
+    <n-h2>{{ t('store.title') }}</n-h2>
 
     <!-- Source Status Bar -->
     <n-space v-if="sources.length > 0" align="center" style="margin-bottom: 12px">
       <n-tag v-for="s in sources" :key="s.id" :type="s.last_status === 'ok' ? 'success' : s.last_status === 'error' ? 'error' : 'default'" size="small" round>
         {{ s.name }}
         <template #icon><n-icon :component="s.last_status === 'ok' ? CheckmarkCircle : s.last_status === 'error' ? CloseCircle : TimeOutline" /></template>
-        {{ s.last_status === 'ok' ? '已更新' : s.last_status === 'error' ? '失败' : '加载中' }}
+        {{ s.last_status === 'ok' ? t('store.updated') : s.last_status === 'error' ? t('store.failed') : t('store.loading') }}
       </n-tag>
-      <n-button size="small" @click="loadTemplates(true)" :loading="refreshing">刷新目录</n-button>
+      <n-button size="small" @click="loadTemplates(true)" :loading="refreshing">{{ t('store.refreshCatalog') }}</n-button>
     </n-space>
 
     <!-- Category Nav -->
@@ -46,26 +46,26 @@
           />
         </n-gi>
       </n-grid>
-      <n-empty v-else-if="!loading" description="暂无模板，请检查 catalog 源或调整筛选" style="padding: 40px" />
+      <n-empty v-else-if="!loading" :description="t('store.noTemplates')" style="padding: 40px" />
     </n-spin>
 
     <!-- Detail Drawer -->
     <n-drawer v-model:show="detailVisible" :width="isMobile ? '100%' : 720" placement="right">
-      <n-drawer-content :title="detailItem?.template.name || '详情'" closable>
+      <n-drawer-content :title="detailItem?.template.name || t('store.detail')" closable>
         <template v-if="detailItem">
           <div class="detail-layout">
             <!-- 头部：描述信息 + 按钮（不滚动） -->
             <div class="detail-header">
               <n-descriptions label-placement="left" :column="1" size="small" bordered>
-                <n-descriptions-item label="版本">{{ detailItem.template.version }}</n-descriptions-item>
-                <n-descriptions-item label="类型">{{ detailItem.template.type }}</n-descriptions-item>
-                <n-descriptions-item label="作者">
+                <n-descriptions-item :label="t('common.version')">{{ detailItem.template.version }}</n-descriptions-item>
+                <n-descriptions-item :label="t('common.type')">{{ detailItem.template.type }}</n-descriptions-item>
+                <n-descriptions-item :label="t('store.author')">
                   <a v-if="detailItem.template.author?.url" :href="detailItem.template.author.url" target="_blank" rel="noopener noreferrer">{{ detailItem.template.author.name }}</a>
                   <span v-else>{{ detailItem.template.author?.name || '-' }}</span>
                 </n-descriptions-item>
-                <n-descriptions-item label="来源">{{ detailItem.sourceName }}</n-descriptions-item>
-                <n-descriptions-item v-if="detailItem.sourceCount > 1" label="多源">来自 {{ detailItem.sourceCount }} 个源</n-descriptions-item>
-                <n-descriptions-item v-if="detailItem.template.homepage" label="主页">
+                <n-descriptions-item :label="t('store.source')">{{ detailItem.sourceName }}</n-descriptions-item>
+                <n-descriptions-item v-if="detailItem.sourceCount > 1" :label="t('store.multiSource', { count: detailItem.sourceCount })">{{ t('store.multiSource', { count: detailItem.sourceCount }) }}</n-descriptions-item>
+                <n-descriptions-item v-if="detailItem.template.homepage" :label="t('store.homepage')">
                   <a :href="detailItem.template.homepage" target="_blank" rel="noopener noreferrer">{{ detailItem.template.homepage }}</a>
                 </n-descriptions-item>
               </n-descriptions>
@@ -80,7 +80,7 @@
                   rel="noopener noreferrer"
                 >
                   <template #icon><n-icon :component="LogoGithub" /></template>
-                  前往源仓库
+                  {{ t('store.goToRepo') }}
                 </n-button>
                 <n-button
                   v-if="readmeGithubUrl"
@@ -91,21 +91,21 @@
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  在 GitHub 查看完整 README
+                  {{ t('store.viewOnGithub') }}
                 </n-button>
               </n-space>
             </div>
 
             <!-- 中部：README 独立滚动 -->
             <div class="detail-readme">
-              <n-spin v-if="readmeLoading" size="small" style="padding: 8px 0">正在加载 README…</n-spin>
-              <MarkdownRenderer v-else :content="readmeContent || detailItem.template.description || '暂无说明'" :base-url="readmeBaseUrl" :repo-url="repoRootUrl" />
+              <n-spin v-if="readmeLoading" size="small" style="padding: 8px 0">{{ t('store.loadingReadme') }}</n-spin>
+              <MarkdownRenderer v-else :content="readmeContent || detailItem.template.description || t('store.noReadme')" :base-url="readmeBaseUrl" :repo-url="repoRootUrl" />
             </div>
 
             <!-- 底部：绑定 + 环境变量 + 部署按钮（不滚动） -->
             <div class="detail-footer">
               <div v-if="detailItem.template.bindings?.length">
-                <n-h4 style="margin: 8px 0">绑定</n-h4>
+                <n-h4 style="margin: 8px 0">{{ t('store.bindings') }}</n-h4>
                 <n-list size="small" bordered>
                   <n-list-item v-for="b in detailItem.template.bindings" :key="b.name">
                     <n-tag size="tiny" :type="bindingTagType(b.type)">{{ b.type }}</n-tag>
@@ -116,7 +116,7 @@
               </div>
 
               <div v-if="detailItem.template.env && Object.keys(detailItem.template.env).length">
-                <n-h4 style="margin: 8px 0">环境变量</n-h4>
+                <n-h4 style="margin: 8px 0">{{ t('store.envVars') }}</n-h4>
                 <n-list size="small" bordered>
                   <n-list-item v-for="(v, k) in detailItem.template.env" :key="k">
                     <span style="font-family: monospace">{{ k }}</span> = <span style="color: var(--text-color-3)">{{ v }}</span>
@@ -124,7 +124,7 @@
                 </n-list>
               </div>
 
-              <n-button type="primary" block @click="openDeploy(detailItem)">部署此模板</n-button>
+              <n-button type="primary" block @click="openDeploy(detailItem)">{{ t('store.deployTemplate') }}</n-button>
             </div>
           </div>
         </template>
@@ -144,6 +144,7 @@
 import { ref, computed, onMounted, h } from 'vue';
 import { CheckmarkCircle, CloseCircle, TimeOutline, LogoGithub } from '@vicons/ionicons5';
 import { NSpace, NA } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { storeApi } from '../api/store';
 import StoreDeployDialog from '../components/StoreDeployDialog.vue';
 import StoreCard from '../components/store/StoreCard.vue';
@@ -154,6 +155,7 @@ import { isFav, toggleFav } from '../utils/favorites';
 import { message, dialog } from '../utils/discreteApi';
 import type { CatalogBindingType, TemplateItem } from '../types/store';
 
+const { t } = useI18n();
 const loading = ref(false);
 const refreshing = ref(false);
 const templates = ref<TemplateItem[]>([]);
@@ -354,23 +356,23 @@ function openDeploy(item: TemplateItem) {
 function onDeployed(result: any) {
   const data = result.data || result;
   if (data.error) {
-    message.error(`部署失败: ${data.error}`);
-    if (data.rolledBack) message.warning('已自动回滚');
+    message.error(t('store.deployFailed', { error: data.error }));
+    if (data.rolledBack) message.warning(t('store.autoRollback'));
     return;
   }
   deployVisible.value = false;
-  const accountInfo = data.accountName ? `到 ${data.accountName}` : '';
+  const accountInfo = data.accountName ? t('store.deploySuccessAccount', { name: data.accountName }) : '';
   const urls = (data.url || '').split(' | ').filter(Boolean);
   if (urls.length === 0) {
-    message.success(`部署成功${accountInfo}！请在 CF Dashboard 查看`);
+    message.success(t('store.deploySuccess', { account: accountInfo }));
     return;
   }
   // 部署成功：弹框询问是否打开新部署的地址
   dialog.success({
-    title: `部署成功${accountInfo}`,
+    title: t('store.deployDialogTitle', { account: accountInfo }),
     content: () =>
       h('div', [
-        h('p', { style: 'margin: 0 0 8px' }, '是否打开新部署的地址？'),
+        h('p', { style: 'margin: 0 0 8px' }, t('store.openUrlPrompt')),
         h(
           NSpace,
           { vertical: true },
@@ -379,8 +381,8 @@ function onDeployed(result: any) {
           )
         ),
       ]),
-    positiveText: '打开地址',
-    negativeText: '关闭',
+    positiveText: t('store.openUrl'),
+    negativeText: t('common.close'),
     onPositiveClick: () => {
       urls.forEach((u: string) => window.open(u, '_blank'));
     },

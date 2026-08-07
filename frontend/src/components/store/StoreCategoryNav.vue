@@ -6,9 +6,9 @@
       @update:value="onTypeChange"
       size="small"
     >
-      <n-tab name="all">全部 ({{ total }})</n-tab>
-      <n-tab v-for="t in types" :key="t.value" :name="t.value">
-        {{ t.label }} ({{ t.count }})
+      <n-tab name="all">{{ t('storeCategoryNav.all', { count: total }) }}</n-tab>
+      <n-tab v-for="tc in types" :key="tc.value" :name="tc.value">
+        {{ tc.label }} ({{ tc.count }})
       </n-tab>
     </n-tabs>
 
@@ -30,6 +30,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 interface TypeCount {
   value: 'worker' | 'pages' | 'hybrid';
@@ -49,7 +52,7 @@ const emit = defineEmits<{
   (e: 'toggle-tag', tag: string): void;
 }>();
 
-const total = computed(() => props.types.reduce((sum, t) => sum + t.count, 0));
+const total = computed(() => props.types.reduce((sum, tc) => sum + tc.count, 0));
 
 function onTypeChange(value: string) {
   emit('update:selectedType', value === 'all' ? null : value);

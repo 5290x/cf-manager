@@ -1,18 +1,18 @@
 <template>
   <div class="page-view">
     <n-space justify="space-between" align="center">
-      <n-h2>账号管理</n-h2>
+      <n-h2>{{ t('accounts.title') }}</n-h2>
       <n-space>
-        <n-button @click="showImportModal = true">导入 CSV</n-button>
-        <n-button type="primary" @click="showAddModal = true">添加账号</n-button>
+        <n-button @click="showImportModal = true">{{ t('accounts.importCsv') }}</n-button>
+        <n-button type="primary" @click="showAddModal = true">{{ t('accounts.addAccount') }}</n-button>
       </n-space>
     </n-space>
 
     <n-space align="center" :size="12" style="margin: 12px 0;">
       <n-button-group size="small">
-        <n-button :type="accountStore.filter === 'all' ? 'primary' : 'default'" @click="handleFilterChange('all')">全部 ({{ accountStore.counts.all }})</n-button>
-        <n-button :type="accountStore.filter === 'active' ? 'primary' : 'default'" @click="handleFilterChange('active')">活跃 ({{ accountStore.counts.active }})</n-button>
-        <n-button :type="accountStore.filter === 'unverified' ? 'primary' : 'default'" @click="handleFilterChange('unverified')">未验证 ({{ accountStore.counts.unverified }})</n-button>
+        <n-button :type="accountStore.filter === 'all' ? 'primary' : 'default'" @click="handleFilterChange('all')">{{ t('accounts.filterAll') }} ({{ accountStore.counts.all }})</n-button>
+        <n-button :type="accountStore.filter === 'active' ? 'primary' : 'default'" @click="handleFilterChange('active')">{{ t('accounts.filterActive') }} ({{ accountStore.counts.active }})</n-button>
+        <n-button :type="accountStore.filter === 'unverified' ? 'primary' : 'default'" @click="handleFilterChange('unverified')">{{ t('accounts.filterUnverified') }} ({{ accountStore.counts.unverified }})</n-button>
       </n-button-group>
       <n-button
         size="small"
@@ -21,23 +21,23 @@
         :disabled="accountStore.filter === 'unverified' && accountStore.counts.unverified === 0"
         @click="handleTestBatch"
       >
-        批量测试{{ accountStore.filter === 'unverified' ? '未验证' : '全部' }}账户
+        {{ t('accounts.batchTestAccounts', { filter: accountStore.filter === 'unverified' ? t('accounts.filterUnverified') : t('accounts.filterAll') }) }}
       </n-button>
       <n-input
         v-model:value="searchInput"
         size="small"
-        placeholder="搜索名称/邮箱"
+        :placeholder="t('accounts.searchPlaceholder')"
         clearable
         style="width: 200px;"
         @update:value="handleSearchInput"
       />
       <template v-if="checkedRowKeys.length > 0">
         <n-divider vertical />
-        <n-text strong depth="3">已选 {{ checkedRowKeys.length }} 项</n-text>
-        <n-button size="small" type="primary" ghost @click="openBatchFeatures">批量设置功能</n-button>
-        <n-button v-if="!isWorkerPlatform" size="small" @click="openBatchProxy">批量设置代理</n-button>
-        <n-button size="small" type="error" @click="showBatchDeleteConfirm = true">批量删除</n-button>
-        <n-button size="small" quaternary @click="checkedRowKeys = []">取消选择</n-button>
+        <n-text strong depth="3">{{ t('accounts.selectedItems', { count: checkedRowKeys.length }) }}</n-text>
+        <n-button size="small" type="primary" ghost @click="openBatchFeatures">{{ t('accounts.batchFeatures') }}</n-button>
+        <n-button v-if="!isWorkerPlatform" size="small" @click="openBatchProxy">{{ t('accounts.batchProxy') }}</n-button>
+        <n-button size="small" type="error" @click="showBatchDeleteConfirm = true">{{ t('accounts.batchDelete') }}</n-button>
+        <n-button size="small" quaternary @click="checkedRowKeys = []">{{ t('common.clearSelection') }}</n-button>
       </template>
     </n-space>
 
@@ -53,24 +53,24 @@
       v-model:checked-row-keys="checkedRowKeys"
     />
 
-    <n-modal v-model:show="showAddModal" preset="dialog" :title="editingId === null ? '添加账号' : '编辑账号'" style="width: 500px; max-width: 95vw">
+    <n-modal v-model:show="showAddModal" preset="dialog" :title="editingId === null ? t('accounts.addModalTitle') : t('accounts.editModalTitle')" style="width: 500px; max-width: 95vw">
       <n-form :model="form" label-placement="left" label-width="100">
-        <n-form-item label="名称">
-          <n-input v-model:value="form.name" placeholder="账号名称" />
+        <n-form-item :label="t('accounts.accountName')">
+          <n-input v-model:value="form.name" :placeholder="t('accounts.accountNamePlaceholder')" />
         </n-form-item>
-        <n-form-item label="认证类型">
+        <n-form-item :label="t('accounts.authType')">
           <n-select v-model:value="form.auth_type" :options="authTypeOptions" />
         </n-form-item>
-        <n-form-item v-if="form.auth_type === 'token'" label="API Token">
-          <n-input v-model:value="form.api_token" type="password" show-password-on="click" :placeholder="editingId === null ? 'Cloudflare API Token' : '不填则保留原 Token'" />
+        <n-form-item v-if="form.auth_type === 'token'" :label="t('accounts.apiToken')">
+          <n-input v-model:value="form.api_token" type="password" show-password-on="click" :placeholder="editingId === null ? t('accounts.apiTokenPlaceholder') : t('accounts.apiTokenEditPlaceholder')" />
         </n-form-item>
-        <n-form-item v-if="form.auth_type === 'global_key'" label="Email">
-          <n-input v-model:value="form.email" :placeholder="editingId === null ? 'Cloudflare 账号邮箱' : (editingOriginalEmail ? `原邮箱: ${editingOriginalEmail}，不填则保留` : '不填则保留原邮箱')" />
+        <n-form-item v-if="form.auth_type === 'global_key'" :label="t('accounts.email')">
+          <n-input v-model:value="form.email" :placeholder="editingId === null ? t('accounts.emailPlaceholder') : (editingOriginalEmail ? t('accounts.emailEditWithOriginal', { email: editingOriginalEmail }) : t('accounts.emailEditPlaceholder'))" />
         </n-form-item>
-        <n-form-item v-if="form.auth_type === 'global_key'" label="API Key">
-          <n-input v-model:value="form.api_key" type="password" show-password-on="click" :placeholder="editingId === null ? 'Cloudflare API Key' : '不填则保留原 Key'" />
+        <n-form-item v-if="form.auth_type === 'global_key'" :label="t('accounts.apiKey')">
+          <n-input v-model:value="form.api_key" type="password" show-password-on="click" :placeholder="editingId === null ? t('accounts.apiKeyPlaceholder') : t('accounts.apiKeyEditPlaceholder')" />
         </n-form-item>
-        <n-form-item v-if="editingId === null" label="启用功能">
+        <n-form-item v-if="editingId === null" :label="t('accounts.enableFeatures')">
           <n-checkbox-group v-model:value="form.features">
             <n-space>
               <n-checkbox v-for="f in featureOptions" :key="f.value" :value="f.value" :label="f.label" />
@@ -79,47 +79,46 @@
         </n-form-item>
       </n-form>
       <template #action>
-        <n-button @click="showAddModal = false">取消</n-button>
-        <n-button type="primary" :loading="submitting" @click="handleSubmit">提交</n-button>
+        <n-button @click="showAddModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="submitting" @click="handleSubmit">{{ t('common.submit') }}</n-button>
       </template>
     </n-modal>
 
-    <n-modal v-model:show="showFeatureModal" preset="dialog" title="编辑功能开关" style="width: 400px; max-width: 95vw">
+    <n-modal v-model:show="showFeatureModal" preset="dialog" :title="t('accounts.editFeatures')" style="width: 400px; max-width: 95vw">
       <n-checkbox-group v-model:value="editFeatures">
         <n-space vertical>
           <n-checkbox v-for="f in featureOptions" :key="f.value" :value="f.value" :label="f.label" />
         </n-space>
       </n-checkbox-group>
       <template #action>
-        <n-button @click="showFeatureModal = false">取消</n-button>
-        <n-button type="primary" :loading="submitting" @click="handleSaveFeatures">保存</n-button>
+        <n-button @click="showFeatureModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="submitting" @click="handleSaveFeatures">{{ t('common.save') }}</n-button>
       </template>
     </n-modal>
 
     <!-- 单个账户代理设置 -->
-    <n-modal v-model:show="showProxyModal" preset="dialog" title="设置账户代理" style="width: 460px; max-width: 95vw">
+    <n-modal v-model:show="showProxyModal" preset="dialog" :title="t('accounts.proxyModalTitle')" style="width: 460px; max-width: 95vw">
       <n-form label-placement="left" label-width="90">
-        <n-form-item label="代理 URL">
-          <n-input v-model:value="proxyForm.proxy_url" placeholder="可选，为该账户指定专属代理（如 http://127.0.0.1:7890）" clearable />
+        <n-form-item :label="t('accounts.proxyUrl')">
+          <n-input v-model:value="proxyForm.proxy_url" :placeholder="t('accounts.proxyUrlPlaceholder')" clearable />
         </n-form-item>
-        <n-form-item label="启用代理">
+        <n-form-item :label="t('accounts.enableProxy')">
           <n-switch v-model:value="proxyForm.proxy_enabled" :disabled="!proxyForm.proxy_url" />
           <n-text depth="3" style="margin-left: 8px; font-size: 12px">
-            {{ proxyForm.proxy_enabled ? '该账户将通过专属代理访问 Cloudflare API' : proxyForm.proxy_url ? '已关闭，将使用全局代理或直连' : '请先填写代理 URL' }}
+            {{ proxyForm.proxy_enabled ? t('accounts.proxyEnabledHint') : proxyForm.proxy_url ? t('accounts.proxyDisabledHint') : t('accounts.proxyUrlRequired') }}
           </n-text>
         </n-form-item>
       </n-form>
       <template #action>
-        <n-button @click="showProxyModal = false">取消</n-button>
-        <n-button type="primary" :loading="submitting" @click="handleSaveProxy">保存</n-button>
+        <n-button @click="showProxyModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="submitting" @click="handleSaveProxy">{{ t('common.save') }}</n-button>
       </template>
     </n-modal>
 
-    <n-modal v-model:show="showImportModal" preset="dialog" title="导入 CSV" style="width: 700px; max-width: 95vw">
+    <n-modal v-model:show="showImportModal" preset="dialog" :title="t('accounts.importModalTitle')" style="width: 700px; max-width: 95vw">
       <n-space vertical :size="16">
         <n-alert type="info" :bordered="false">
-          CSV 表头须包含 <n-text code>email</n-text> 和 <n-text code>apiKey</n-text>（可选 <n-text code>password</n-text>）。
-          系统会按邮箱去重；账户名自动从邮箱提取（如 lauren.bailey2701@xx → bailey2701）；单个账户错误不影响其他账户导入。
+          {{ t('accounts.importInstructions') }}
         </n-alert>
         <n-upload
           :max="1"
@@ -128,19 +127,19 @@
           :show-file-list="true"
           v-model:file-list="importFileList"
         >
-          <n-button>选择 CSV 文件</n-button>
+          <n-button>{{ t('accounts.selectCsvFile') }}</n-button>
         </n-upload>
         <n-checkbox v-model:checked="skipVerify">
-          跳过凭证验证（秒级完成，后续逐个「测试」激活；适合大批量导入）
+          {{ t('accounts.skipVerify') }}
         </n-checkbox>
         <n-alert v-if="importing" type="info" :bordered="false">
-          正在处理中，请耐心等待…（并发批处理，每批 5 条；跳过验证时每批 20 条）
+          {{ t('accounts.importing') }}
         </n-alert>
         <n-space v-if="importResult">
-          <n-statistic label="总计" :value="importResult.summary.total" />
-          <n-statistic label="成功" :value="importResult.summary.success" />
-          <n-statistic label="跳过" :value="importResult.summary.skipped" />
-          <n-statistic label="失败" :value="importResult.summary.error" />
+          <n-statistic :label="t('common.total')" :value="importResult.summary.total" />
+          <n-statistic :label="t('common.success')" :value="importResult.summary.success" />
+          <n-statistic :label="t('common.skipped')" :value="importResult.summary.skipped" />
+          <n-statistic :label="t('common.error')" :value="importResult.summary.error" />
         </n-space>
         <n-data-table
           v-if="importResult"
@@ -152,17 +151,17 @@
         />
       </n-space>
       <template #action>
-        <n-button @click="closeImportModal">关闭</n-button>
-        <n-button type="primary" :loading="importing" :disabled="!importFile" @click="handleImport">开始导入</n-button>
+        <n-button @click="closeImportModal">{{ t('common.close') }}</n-button>
+        <n-button type="primary" :loading="importing" :disabled="!importFile" @click="handleImport">{{ t('accounts.importCsv') }}</n-button>
       </template>
     </n-modal>
 
-    <n-modal v-model:show="showBatchResultModal" preset="dialog" title="批量测试结果" style="width: 700px; max-width: 95vw">
+    <n-modal v-model:show="showBatchResultModal" preset="dialog" :title="t('accounts.batchResultTitle')" style="width: 700px; max-width: 95vw">
       <n-space vertical :size="16">
         <n-space>
-          <n-statistic label="总计" :value="batchResult?.summary.total ?? 0" />
-          <n-statistic label="成功" :value="batchResult?.summary.success ?? 0" />
-          <n-statistic label="失败" :value="batchResult?.summary.error ?? 0" />
+          <n-statistic :label="t('common.total')" :value="batchResult?.summary.total ?? 0" />
+          <n-statistic :label="t('common.success')" :value="batchResult?.summary.success ?? 0" />
+          <n-statistic :label="t('common.error')" :value="batchResult?.summary.error ?? 0" />
         </n-space>
         <n-data-table
           v-if="batchResult"
@@ -174,30 +173,30 @@
         />
       </n-space>
       <template #action>
-        <n-button type="primary" @click="showBatchResultModal = false">关闭</n-button>
+        <n-button type="primary" @click="showBatchResultModal = false">{{ t('common.close') }}</n-button>
       </template>
     </n-modal>
 
-    <n-modal v-model:show="showCredModal" preset="dialog" title="查看 API 凭证" style="width: 560px; max-width: 95vw">
+    <n-modal v-model:show="showCredModal" preset="dialog" :title="t('accounts.credModalTitle')" style="width: 560px; max-width: 95vw">
       <n-spin :show="credLoading">
         <n-space vertical :size="12" v-if="credData">
           <n-alert type="warning" :bordered="false">
-            凭证信息敏感，请勿泄露。每次查看都会记录审计日志。
+            {{ t('accounts.credWarning') }}
           </n-alert>
           <n-descriptions label-placement="left" bordered :column="1" size="small">
-            <n-descriptions-item label="名称">{{ credData.name }}</n-descriptions-item>
+            <n-descriptions-item :label="t('accounts.accountName')">{{ credData.name }}</n-descriptions-item>
             <n-descriptions-item label="Account ID">
               <n-text :style="{ fontFamily: 'monospace' }">{{ credData.account_id || '-' }}</n-text>
             </n-descriptions-item>
-            <n-descriptions-item label="认证类型">
+            <n-descriptions-item :label="t('accounts.authType')">
               <n-tag size="small" :type="credData.auth_type === 'token' ? 'info' : 'warning'">
-                {{ credData.auth_type === 'token' ? 'API Token' : 'API Key + Email' }}
+                {{ credData.auth_type === 'token' ? t('accounts.authTypeToken') : t('accounts.authTypeKey') }}
               </n-tag>
             </n-descriptions-item>
-            <n-descriptions-item v-if="credData.auth_type === 'global_key'" label="Email">
+            <n-descriptions-item v-if="credData.auth_type === 'global_key'" :label="t('accounts.email')">
               {{ credData.email || '-' }}
             </n-descriptions-item>
-            <n-descriptions-item v-if="credData.auth_type === 'token'" label="API Token">
+            <n-descriptions-item v-if="credData.auth_type === 'token'" :label="t('accounts.apiToken')">
               <n-input
                 :value="credData.api_token || ''"
                 type="password"
@@ -206,7 +205,7 @@
                 :style="{ fontFamily: 'monospace' }"
               />
             </n-descriptions-item>
-            <n-descriptions-item v-if="credData.auth_type === 'global_key'" label="API Key">
+            <n-descriptions-item v-if="credData.auth_type === 'global_key'" :label="t('accounts.apiKey')">
               <n-input
                 :value="credData.api_key || ''"
                 type="password"
@@ -215,7 +214,7 @@
                 :style="{ fontFamily: 'monospace' }"
               />
             </n-descriptions-item>
-            <n-descriptions-item v-if="credData.password" label="登录密码">
+            <n-descriptions-item v-if="credData.password" :label="t('accounts.loginPassword')">
               <n-input
                 :value="credData.password"
                 type="password"
@@ -224,74 +223,74 @@
                 :style="{ fontFamily: 'monospace' }"
               />
             </n-descriptions-item>
-            <n-descriptions-item v-if="!isWorkerPlatform" label="代理 URL">
+            <n-descriptions-item v-if="!isWorkerPlatform" :label="t('accounts.proxyUrl')">
               <n-text :style="{ fontFamily: 'monospace' }">{{ credData.proxy_url || '—' }}</n-text>
             </n-descriptions-item>
-            <n-descriptions-item v-if="!isWorkerPlatform && credData.proxy_url" label="代理状态">
+            <n-descriptions-item v-if="!isWorkerPlatform && credData.proxy_url" :label="t('accounts.proxyStatus')">
               <n-tag :type="credData.proxy_enabled ? 'success' : 'default'" size="small">
-                {{ credData.proxy_enabled ? '已启用' : '已关闭' }}
+                {{ credData.proxy_enabled ? t('common.enabled') : t('common.disabled') }}
               </n-tag>
             </n-descriptions-item>
           </n-descriptions>
         </n-space>
       </n-spin>
       <template #action>
-        <n-button @click="showCredModal = false">关闭</n-button>
+        <n-button @click="showCredModal = false">{{ t('common.close') }}</n-button>
       </template>
     </n-modal>
 
     <!-- 批量设置功能 -->
-    <n-modal v-model:show="showBatchFeaturesModal" preset="dialog" title="批量设置功能开关" style="width: 420px; max-width: 95vw">
+    <n-modal v-model:show="showBatchFeaturesModal" preset="dialog" :title="t('accounts.batchFeaturesModalTitle')" style="width: 420px; max-width: 95vw">
       <n-checkbox-group v-model:value="batchFeatures">
         <n-space vertical>
           <n-checkbox v-for="f in featureOptions" :key="f.value" :value="f.value" :label="f.label" />
         </n-space>
       </n-checkbox-group>
       <template #action>
-        <n-button @click="showBatchFeaturesModal = false">取消</n-button>
-        <n-button type="primary" :loading="batchOperating" @click="handleBatchFeatures">确认设置 ({{ checkedRowKeys.length }} 个账户)</n-button>
+        <n-button @click="showBatchFeaturesModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="batchOperating" @click="handleBatchFeatures">{{ t('accounts.confirmSetAccounts', { count: checkedRowKeys.length }) }}</n-button>
       </template>
     </n-modal>
 
     <!-- 批量设置代理 -->
-    <n-modal v-model:show="showBatchProxyModal" preset="dialog" title="批量设置代理" style="width: 460px; max-width: 95vw">
+    <n-modal v-model:show="showBatchProxyModal" preset="dialog" :title="t('accounts.batchProxyModalTitle')" style="width: 460px; max-width: 95vw">
       <n-form label-placement="left" label-width="90">
-        <n-form-item label="代理 URL">
-          <n-input v-model:value="batchProxyUrl" placeholder="留空则不清除已有代理设置" clearable />
+        <n-form-item :label="t('accounts.proxyUrl')">
+          <n-input v-model:value="batchProxyUrl" :placeholder="t('accounts.batchProxyHint')" clearable />
         </n-form-item>
-        <n-form-item label="启用代理">
+        <n-form-item :label="t('accounts.enableProxy')">
           <n-switch v-model:value="batchProxyEnabled" />
-          <n-text depth="3" style="margin-left: 8px; font-size: 12px">{{ batchProxyEnabled ? '开启' : '关闭' }}</n-text>
+          <n-text depth="3" style="margin-left: 8px; font-size: 12px">{{ batchProxyEnabled ? t('common.enabled') : t('common.disabled') }}</n-text>
         </n-form-item>
         <n-alert type="info" :bordered="false" style="margin-top: 8px">
-          如果 URL 留空，仅更新开关状态；URL 不为空时两者同时生效。
+          {{ t('accounts.batchProxyHint') }}
         </n-alert>
       </n-form>
       <template #action>
-        <n-button @click="showBatchProxyModal = false">取消</n-button>
-        <n-button type="primary" :loading="batchOperating" @click="handleBatchProxy">确认设置 ({{ checkedRowKeys.length }} 个账户)</n-button>
+        <n-button @click="showBatchProxyModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="batchOperating" @click="handleBatchProxy">{{ t('accounts.confirmSetAccounts', { count: checkedRowKeys.length }) }}</n-button>
       </template>
     </n-modal>
 
     <!-- 批量删除确认 -->
-    <n-modal v-model:show="showBatchDeleteConfirm" preset="dialog" title="批量删除确认" type="error" style="width: 440px; max-width: 95vw">
+    <n-modal v-model:show="showBatchDeleteConfirm" preset="dialog" :title="t('accounts.batchDeleteTitle')" type="error" style="width: 440px; max-width: 95vw">
       <n-alert type="error" :bordered="false">
-        确定要删除选中的 <strong>{{ checkedRowKeys.length }}</strong> 个账户吗？此操作不可恢复。
+        {{ t('accounts.batchDeleteConfirm', { count: checkedRowKeys.length }) }}
       </n-alert>
       <template #action>
-        <n-button @click="showBatchDeleteConfirm = false">取消</n-button>
-        <n-button type="error" :loading="batchOperating" @click="handleBatchDelete">确认删除</n-button>
+        <n-button @click="showBatchDeleteConfirm = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="error" :loading="batchOperating" @click="handleBatchDelete">{{ t('accounts.confirmDelete') }}</n-button>
       </template>
     </n-modal>
 
     <!-- 批量操作结果 -->
-    <n-modal v-model:show="showBatchOpResult" preset="dialog" title="批量操作结果" style="width: 700px; max-width: 95vw">
+    <n-modal v-model:show="showBatchOpResult" preset="dialog" :title="t('accounts.batchOpResultTitle')" style="width: 700px; max-width: 95vw">
       <n-space vertical :size="16">
         <n-space>
-          <n-statistic label="总计" :value="batchOpResult?.summary.total ?? 0" />
-          <n-statistic label="成功" :value="batchOpResult?.summary.success ?? 0" />
-          <n-statistic label="跳过" :value="batchOpResult?.summary.skipped ?? 0" />
-          <n-statistic label="失败" :value="batchOpResult?.summary.error ?? 0" />
+          <n-statistic :label="t('common.total')" :value="batchOpResult?.summary.total ?? 0" />
+          <n-statistic :label="t('common.success')" :value="batchOpResult?.summary.success ?? 0" />
+          <n-statistic :label="t('common.skipped')" :value="batchOpResult?.summary.skipped ?? 0" />
+          <n-statistic :label="t('common.error')" :value="batchOpResult?.summary.error ?? 0" />
         </n-space>
         <n-data-table
           v-if="batchOpResult"
@@ -303,7 +302,7 @@
         />
       </n-space>
       <template #action>
-        <n-button type="primary" @click="showBatchOpResult = false">关闭</n-button>
+        <n-button type="primary" @click="showBatchOpResult = false">{{ t('common.close') }}</n-button>
       </template>
     </n-modal>
   </div>
@@ -311,6 +310,7 @@
 
 <script setup lang="ts">
 import { ref, h, computed, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { NButton, NSpace, NProgress, NTag, NDropdown, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import type { UploadFileInfo } from 'naive-ui';
@@ -318,6 +318,8 @@ import { useAccountStore } from '../stores/accountStore';
 import { accountsApi } from '../api/accounts';
 import { dialog } from '../utils/discreteApi';
 import { settingsApi } from '../api/settings';
+
+const { t } = useI18n();
 
 type BatchOpResult = { summary: { total: number; success: number; skipped: number; error: number }; results: Array<{ id: number; name: string; status: 'success' | 'skipped' | 'error'; message?: string }> };
 
@@ -359,23 +361,23 @@ const batchProxyEnabled = ref(false);
 const showBatchDeleteConfirm = ref(false);
 const showBatchOpResult = ref(false);
 const batchOpResult = ref<BatchOpResult | null>(null);
-const batchOpResultColumns: DataTableColumns<any> = [
+const batchOpResultColumns = computed<DataTableColumns<any>>(() => [
   { title: 'ID', key: 'id', width: 60 },
-  { title: '名称', key: 'name', width: 150 },
+  { title: t('accounts.table.name'), key: 'name', width: 150 },
   {
-    title: '结果', key: 'status', width: 90,
+    title: t('common.result'), key: 'status', width: 90,
     render: (row) => {
       const map: Record<string, { type: any; text: string }> = {
-        success: { type: 'success', text: '成功' },
-        skipped: { type: 'warning', text: '跳过' },
-        error: { type: 'error', text: '失败' },
+        success: { type: 'success', text: t('common.success') },
+        skipped: { type: 'warning', text: t('common.skipped') },
+        error: { type: 'error', text: t('common.error') },
       };
       const m = map[row.status] || { type: 'default', text: row.status };
       return h(NTag, { size: 'small', type: m.type, bordered: false }, { default: () => m.text });
     },
   },
-  { title: '说明', key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
-];
+  { title: t('common.message'), key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
+]);
 
 // 查看 API 凭证
 const showCredModal = ref(false);
@@ -400,7 +402,7 @@ async function handleViewCredentials(row: any) {
   try {
     credData.value = await accountStore.getCredentials(row.id);
   } catch (e: any) {
-    message.error(`获取凭证失败：${e?.message || e}`);
+    message.error(t('accounts.msg.getCredFailed', { error: e?.message || e }));
     showCredModal.value = false;
   } finally {
     credLoading.value = false;
@@ -419,7 +421,7 @@ const paginationConfig = computed(() => ({
   itemCount: accountStore.total,
   showSizePicker: true,
   pageSizes: [10, 20, 50, 100],
-  prefix: ({ itemCount }: any) => `共 ${itemCount} 条`,
+  prefix: ({ itemCount }: any) => t('accounts.table.totalItems', { count: itemCount }),
   onUpdatePage: (p: number) => { accountStore.setPage(p); },
   onUpdatePageSize: (ps: number) => { accountStore.setPageSize(ps); },
 }));
@@ -438,21 +440,21 @@ function handleSearchInput(val: string) {
   }, 400);
 }
 
-const featureOptions = [
-  { label: 'Workers AI', value: 'ai' },
-  { label: 'Workers / Pages', value: 'workers' },
-  { label: '浏览器渲染', value: 'browser_render' },
-  { label: 'DNS 管理', value: 'dns' },
-  { label: '存储管理', value: 'storage' },
-];
+const featureOptions = computed(() => [
+  { label: t('accounts.workersAi'), value: 'ai' },
+  { label: t('accounts.workersPages'), value: 'workers' },
+  { label: t('accounts.browserRender'), value: 'browser_render' },
+  { label: t('accounts.dnsManagement'), value: 'dns' },
+  { label: t('accounts.storageManagement'), value: 'storage' },
+]);
 
-const featureLabelMap: Record<string, string> = {
-  ai: 'AI',
-  workers: 'Workers',
-  browser_render: '浏览器',
-  dns: 'DNS',
-  storage: '存储',
-};
+const featureLabelMap = computed<Record<string, string>>(() => ({
+  ai: t('common.featureLabels.ai'),
+  workers: t('common.featureLabels.workers'),
+  browser_render: t('common.featureLabels.browser_render'),
+  dns: t('common.featureLabels.dns'),
+  storage: t('common.featureLabels.storage'),
+}));
 
 const form = ref({
   name: '',
@@ -463,10 +465,10 @@ const form = ref({
   features: ['ai', 'workers', 'browser_render', 'dns', 'storage'] as string[],
 });
 
-const authTypeOptions = [
-  { label: 'API Token', value: 'token' },
-  { label: 'API Key + Email', value: 'global_key' },
-];
+const authTypeOptions = computed(() => [
+  { label: t('accounts.authTypeToken'), value: 'token' },
+  { label: t('accounts.authTypeKey'), value: 'global_key' },
+]);
 
 function resetForm() {
   form.value = { name: '', auth_type: 'token', api_token: '', api_key: '', email: '', features: ['ai', 'workers', 'browser_render', 'dns', 'storage'] };
@@ -474,7 +476,7 @@ function resetForm() {
 
 async function handleSubmit() {
   if (!form.value.name) {
-    message.warning('请输入账号名称');
+    message.warning(t('accounts.msg.nameRequired'));
     return;
   }
   submitting.value = true;
@@ -491,10 +493,10 @@ async function handleSubmit() {
   if (editingId.value === null) {
       // 添加模式：凭证必填（后端校验）
       await accountStore.createAccount({ ...payload, enabled_features: features.join(',') });
-      message.success('账号添加成功');
+      message.success(t('accounts.msg.addSuccess'));
     } else {
       await accountStore.updateAccount(editingId.value, payload);
-      message.success('账号更新成功');
+      message.success(t('accounts.msg.updateSuccess'));
     }
     showAddModal.value = false;
     resetForm();
@@ -530,7 +532,7 @@ async function handleSaveFeatures() {
   submitting.value = true;
   try {
     await accountStore.updateFeatures(editingAccountId.value, editFeatures.value.join(','));
-    message.success('功能开关已更新');
+    message.success(t('accounts.msg.featuresUpdated'));
     showFeatureModal.value = false;
   } finally {
     submitting.value = false;
@@ -551,7 +553,7 @@ async function handleSaveProxy() {
       proxy_url: proxyForm.value.proxy_url,
       proxy_enabled: proxyForm.value.proxy_enabled ? 1 : 0,
     });
-    message.success('账户代理已更新');
+    message.success(t('accounts.msg.proxyUpdated'));
     showProxyModal.value = false;
     await accountStore.fetchAccounts();
   } finally {
@@ -561,15 +563,15 @@ async function handleSaveProxy() {
 
 async function handleTest(row: any) {
   await accountStore.testAccount(row.id);
-  message.success('连接测试成功');
+  message.success(t('accounts.msg.testSuccess'));
 }
 
 async function handleClearExhausted(row: any) {
   try {
     await accountStore.clearExhausted(row.id);
-    message.success('已清除 AI 配额耗尽标记');
+    message.success(t('accounts.msg.clearExhaustedSuccess'));
   } catch (e: any) {
-    message.error(`清除失败：${e?.message || e}`);
+    message.error(t('accounts.msg.clearExhaustedFailed', { error: e?.message || e }));
   }
 }
 
@@ -582,9 +584,9 @@ async function handleTestBatch() {
     batchResult.value = result;
     showBatchResultModal.value = true;
     const s = result.summary;
-    message.success(`批量测试完成：成功 ${s.success}，失败 ${s.error}`);
+    message.success(t('accounts.msg.batchTestComplete', { success: s.success, error: s.error }));
   } catch (e: any) {
-    message.error(`批量测试失败：${e?.message || e}`);
+    message.error(t('accounts.msg.batchTestFailed', { error: e?.message || e }));
   } finally {
     batchTesting.value = false;
   }
@@ -606,9 +608,9 @@ async function handleBatchFeatures() {
     checkedRowKeys.value = [];
     await accountStore.fetchAccounts();
     const s = batchOpResult.value.summary;
-    message.success(`批量设置功能完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}`);
+    message.success(t('accounts.msg.batchFeaturesComplete', { success: s.success, skipped: s.skipped, error: s.error }));
   } catch (e: any) {
-    message.error(`批量设置功能失败：${e?.message || e}`);
+    message.error(t('accounts.msg.batchFeaturesFailed', { error: e?.message || e }));
   } finally {
     batchOperating.value = false;
   }
@@ -633,9 +635,9 @@ async function handleBatchProxy() {
     checkedRowKeys.value = [];
     await accountStore.fetchAccounts();
     const s = batchOpResult.value.summary;
-    message.success(`批量设置代理完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}`);
+    message.success(t('accounts.msg.batchProxyComplete', { success: s.success, skipped: s.skipped, error: s.error }));
   } catch (e: any) {
-    message.error(`批量设置代理失败：${e?.message || e}`);
+    message.error(t('accounts.msg.batchProxyFailed', { error: e?.message || e }));
   } finally {
     batchOperating.value = false;
   }
@@ -651,34 +653,34 @@ async function handleBatchDelete() {
     checkedRowKeys.value = [];
     await accountStore.fetchAccounts();
     const s = batchOpResult.value.summary;
-    message.success(`批量删除完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}`);
+    message.success(t('accounts.msg.batchDeleteComplete', { success: s.success, skipped: s.skipped, error: s.error }));
   } catch (e: any) {
-    message.error(`批量删除失败：${e?.message || e}`);
+    message.error(t('accounts.msg.batchDeleteFailed', { error: e?.message || e }));
   } finally {
     batchOperating.value = false;
   }
 }
 
-const batchResultColumns: DataTableColumns<any> = [
+const batchResultColumns = computed<DataTableColumns<any>>(() => [
   { title: 'ID', key: 'id', width: 60 },
-  { title: '名称', key: 'name', width: 150 },
+  { title: t('accounts.table.name'), key: 'name', width: 150 },
   {
-    title: '结果', key: 'status', width: 90,
+    title: t('common.result'), key: 'status', width: 90,
     render: (row) => {
       const map: Record<string, { type: any; text: string }> = {
-        success: { type: 'success', text: '成功' },
-        error: { type: 'error', text: '失败' },
+        success: { type: 'success', text: t('common.success') },
+        error: { type: 'error', text: t('common.error') },
       };
       const m = map[row.status] || { type: 'default', text: row.status };
       return h(NTag, { size: 'small', type: m.type, bordered: false }, { default: () => m.text });
     },
   },
-  { title: '说明', key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
-];
+  { title: t('common.message'), key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
+]);
 
 async function handleDelete(row: any) {
   await accountStore.deleteAccount(row.id);
-  message.success('已删除');
+  message.success(t('accounts.msg.deleted'));
 }
 
 // 操作列「更多」下拉菜单路由
@@ -698,10 +700,10 @@ function handleActionMenu(key: string, row: any) {
       break;
     case 'delete':
       dialog.warning({
-        title: '删除账户',
-        content: `确定要删除账户 "${row.name}" 吗？此操作不可恢复。`,
-        positiveText: '删除',
-        negativeText: '取消',
+        title: t('accounts.msg.deleteAccountTitle'),
+        content: t('accounts.msg.deleteAccountConfirm', { name: row.name }),
+        positiveText: t('common.delete'),
+        negativeText: t('common.cancel'),
         onPositiveClick: () => handleDelete(row),
       });
       break;
@@ -717,7 +719,7 @@ function closeImportModal() {
 
 async function handleImport() {
   if (!importFile.value) {
-    message.warning('请选择 CSV 文件');
+    message.warning(t('accounts.msg.csvFileRequired'));
     return;
   }
   importing.value = true;
@@ -726,29 +728,29 @@ async function handleImport() {
     const result = await accountStore.importCsv(importFile.value, skipVerify.value);
     importResult.value = result;
     const s = result.summary;
-    message.success(`导入完成：成功 ${s.success}，跳过 ${s.skipped}，失败 ${s.error}${skipVerify.value ? '（已跳过验证，请逐个测试激活）' : ''}`);
+    message.success(t('accounts.msg.importComplete', { success: s.success, skipped: s.skipped, error: s.error, skipNote: skipVerify.value ? t('accounts.msg.importSkipNote') : '' }));
   } finally {
     importing.value = false;
   }
 }
 
-const importResultColumns: DataTableColumns<any> = [
-  { title: '邮箱', key: 'email', width: 220, ellipsis: { tooltip: true } },
-  { title: '账户名', key: 'name', width: 140 },
+const importResultColumns = computed<DataTableColumns<any>>(() => [
+  { title: t('accounts.table.email'), key: 'email', width: 220, ellipsis: { tooltip: true } },
+  { title: t('accounts.table.accountNameShort'), key: 'name', width: 140 },
   {
-    title: '结果', key: 'status', width: 90,
+    title: t('common.result'), key: 'status', width: 90,
     render: (row) => {
       const map: Record<string, { type: any; text: string }> = {
-        success: { type: 'success', text: '成功' },
-        skipped: { type: 'warning', text: '跳过' },
-        error: { type: 'error', text: '失败' },
+        success: { type: 'success', text: t('common.success') },
+        skipped: { type: 'warning', text: t('common.skipped') },
+        error: { type: 'error', text: t('common.error') },
       };
       const m = map[row.status] || { type: 'default', text: row.status };
       return h(NTag, { size: 'small', type: m.type, bordered: false }, { default: () => m.text });
     },
   },
-  { title: '说明', key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
-];
+  { title: t('common.message'), key: 'message', width: 180, minWidth: 100, ellipsis: { tooltip: true }, render: (row) => row.message || '-' },
+]);
 
 function parseFeatures(raw: string | undefined): string[] {
   return (raw || 'ai,workers,browser_render,dns,storage').split(',').filter(Boolean);
@@ -758,26 +760,26 @@ const columns = computed<DataTableColumns<any>>(() => {
   const cols: DataTableColumns<any> = [
   { type: 'selection', width: 40, fixed: 'left' },
   { title: 'ID', key: 'id', width: 60 },
-  { title: '名称', key: 'name', width: 150 },
+  { title: t('accounts.table.name'), key: 'name', width: 150 },
   { title: 'Account ID', key: 'account_id', width: 180, ellipsis: { tooltip: true }, render: (row) => row.account_id || '-' },
-  { title: '认证类型', key: 'auth_type', width: 120, render: (row) => h(NTag, { size: 'small', type: row.auth_type === 'token' ? 'info' : 'warning' }, { default: () => row.auth_type === 'token' ? 'Token' : 'Key' }) },
+  { title: t('accounts.table.authType'), key: 'auth_type', width: 120, render: (row) => h(NTag, { size: 'small', type: row.auth_type === 'token' ? 'info' : 'warning' }, { default: () => row.auth_type === 'token' ? 'Token' : 'Key' }) },
   ];
   // Worker 平台不支持代理，隐藏代理列
   if (!isWorkerPlatform.value) {
-    cols.push({ title: '代理', key: 'proxy_url', width: 80, align: 'center', render: (row) => {
+    cols.push({ title: t('accounts.table.proxy'), key: 'proxy_url', width: 80, align: 'center', render: (row) => {
       if (!row.proxy_url) return h('span', { style: { color: '#999', fontSize: '12px' } }, '—');
       return row.proxy_enabled
-        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '已开启' })
-        : h(NTag, { size: 'small', type: 'default', bordered: false }, { default: () => '已关闭' });
+        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => t('common.enabled') })
+        : h(NTag, { size: 'small', type: 'default', bordered: false }, { default: () => t('common.disabled') });
     }});
   }
   cols.push(
   {
-    title: '功能', key: 'enabled_features', width: 220,
+    title: t('accounts.table.features'), key: 'enabled_features', width: 220,
     render: (row) => {
       const features = parseFeatures(row.enabled_features);
       const tags = features.map(f =>
-        h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => featureLabelMap[f] || f })
+        h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => featureLabelMap.value[f] || f })
       );
       // R2 付费能力标识（与 enabled_features 区分）
       const af = (row.available_features || '').split(',').filter(Boolean);
@@ -789,13 +791,13 @@ const columns = computed<DataTableColumns<any>>(() => {
       return h(NSpace, { size: 4 }, { default: () => tags });
     },
   },
-  { title: '状态', key: 'is_active', width: 80, render: (row) => {
+  { title: t('accounts.table.status'), key: 'is_active', width: 80, render: (row) => {
     if (row.is_demo) {
-      return h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => '演示' });
+      return h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => t('common.demo') });
     }
-    return h(NTag, { size: 'small', type: row.is_active ? 'success' : 'default' }, { default: () => row.is_active ? '活跃' : '未验证' });
+    return h(NTag, { size: 'small', type: row.is_active ? 'success' : 'default' }, { default: () => row.is_active ? t('common.active') : t('common.inactive') });
   }},
-  { title: 'AI 配额', key: 'aiQuota', width: 160, render: (row) => {
+  { title: t('accounts.table.aiQuota'), key: 'aiQuota', width: 160, render: (row) => {
     const quotaItem = accountStore.quota.find((q: any) => q.accountId === row.id);
     if (!quotaItem || !quotaItem.resources) return h('span', { style: { color: '#999', fontSize: '12px' } }, '—');
     const aiResource = quotaItem.resources.find((r: any) => r.resource === 'ai_neurons');
@@ -806,7 +808,7 @@ const columns = computed<DataTableColumns<any>>(() => {
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, [
         h('span', { style: { fontSize: '12px', color: exhausted ? '#e03050' : '#666' } }, `${pct}%`),
         exhausted
-          ? h(NTag, { size: 'small', type: 'error', bordered: false }, { default: () => '已耗尽' })
+          ? h(NTag, { size: 'small', type: 'error', bordered: false }, { default: () => t('accounts.table.exhausted') })
           : null,
       ].filter(Boolean)),
       h(NProgress, {
@@ -819,7 +821,7 @@ const columns = computed<DataTableColumns<any>>(() => {
     ]);
   }},
   {
-    title: '操作', key: 'actions', width: 200, fixed: 'right',
+    title: t('accounts.table.actions'), key: 'actions', width: 200, fixed: 'right',
     render: (row) => {
       const isExhausted = (() => {
         const quotaItem = accountStore.quota.find((q: any) => q.accountId === row.id);
@@ -828,19 +830,19 @@ const columns = computed<DataTableColumns<any>>(() => {
         return aiResource?.exhausted;
       })();
       const moreOptions = [
-        { label: '查看 API 凭证', key: 'cred', disabled: !!row.is_demo },
-        { label: '功能开关', key: 'features', disabled: !!row.is_demo },
-        ...(isWorkerPlatform.value ? [] : [{ label: '设置代理', key: 'proxy', disabled: !!row.is_demo }]),
-        ...(isExhausted ? [{ label: '清除耗尽标记', key: 'clearExhausted', disabled: !!row.is_demo }] : []),
+        { label: t('accounts.table.viewCred'), key: 'cred', disabled: !!row.is_demo },
+        { label: t('accounts.table.featureSwitch'), key: 'features', disabled: !!row.is_demo },
+        ...(isWorkerPlatform.value ? [] : [{ label: t('accounts.table.setProxy'), key: 'proxy', disabled: !!row.is_demo }]),
+        ...(isExhausted ? [{ label: t('accounts.table.clearExhausted'), key: 'clearExhausted', disabled: !!row.is_demo }] : []),
         { type: 'divider' as const, key: 'd' },
-        { label: '删除账户', key: 'delete', disabled: !!row.is_demo, props: { style: 'color: var(--n-error-color)' } },
+        { label: t('accounts.table.deleteAccount'), key: 'delete', disabled: !!row.is_demo, props: { style: 'color: var(--n-error-color)' } },
       ];
       return h(NSpace, { size: 4 }, {
         default: () => [
-          h(NButton, { size: 'small', type: 'primary', ghost: true, disabled: row.is_demo, onClick: () => openAccountEditor(row) }, { default: () => '编辑' }),
-          h(NButton, { size: 'small', onClick: () => handleTest(row) }, { default: () => '测试' }),
+          h(NButton, { size: 'small', type: 'primary', ghost: true, disabled: row.is_demo, onClick: () => openAccountEditor(row) }, { default: () => t('common.edit') }),
+          h(NButton, { size: 'small', onClick: () => handleTest(row) }, { default: () => t('common.test') }),
           h(NDropdown, { options: moreOptions, trigger: 'click', onSelect: (key: string) => handleActionMenu(key, row) }, {
-            default: () => h(NButton, { size: 'small' }, { default: () => '更多' }),
+            default: () => h(NButton, { size: 'small' }, { default: () => t('accounts.table.more') }),
           }),
         ],
       });

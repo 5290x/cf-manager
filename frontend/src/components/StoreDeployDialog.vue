@@ -1,55 +1,55 @@
 <template>
-  <n-modal v-model:show="visible" preset="card" :title="`部署 ${template?.name || ''}`" style="width: 600px; max-width: 95vw" :mask-closable="false">
+  <n-modal v-model:show="visible" preset="card" :title="t('storeDeploy.title', { name: template?.name || '' })" style="width: 600px; max-width: 95vw" :mask-closable="false">
     <n-spin :show="deploying || preflighting">
       <n-form v-if="template" label-placement="top" size="small">
         <!-- Account -->
-        <n-form-item label="目标账户" required>
-          <n-select v-model:value="form.accountIds" :options="accountOptions" :render-label="renderAccountLabel" multiple filterable placeholder="选择目标账户（可多选）" @update:value="onAccountChange" />
+        <n-form-item :label="t('storeDeploy.targetAccount')" required>
+          <n-select v-model:value="form.accountIds" :options="accountOptions" :render-label="renderAccountLabel" multiple filterable :placeholder="t('storeDeploy.targetAccountPlaceholder')" @update:value="onAccountChange" />
           <template v-if="needsR2" #feedback>
             <n-text type="warning" depth="3" style="font-size: 12px">
-              该模板需要 R2，仅显示已开通 R2 的账户
+              {{ t('storeDeploy.r2Hint') }}
             </n-text>
           </template>
           <template v-if="isMultiAccount" #feedback>
             <n-text depth="3" style="font-size: 12px">
-              多账户模式下，绑定资源将自动在每个账户上创建或按名称复用
+              {{ t('storeDeploy.multiAccountHint') }}
             </n-text>
           </template>
         </n-form-item>
 
         <!-- Name -->
-        <n-form-item label="Worker/Pages 名称" required>
-          <n-input v-model:value="form.name" placeholder="输入名称" @update:value="invalidatePreflight" />
+        <n-form-item :label="t('storeDeploy.name')" required>
+          <n-input v-model:value="form.name" :placeholder="t('storeDeploy.namePlaceholder')" @update:value="invalidatePreflight" />
         </n-form-item>
 
         <!-- Deploy type (hybrid only) -->
-        <n-form-item v-if="template.type === 'hybrid'" label="部署方式" required>
+        <n-form-item v-if="template.type === 'hybrid'" :label="t('storeDeploy.deployMethod')" required>
           <n-radio-group v-model:value="deployType" @update:value="invalidatePreflight">
-            <n-radio-button value="both">Worker + Pages</n-radio-button>
-            <n-radio-button value="worker">仅 Worker</n-radio-button>
-            <n-radio-button value="pages">仅 Pages</n-radio-button>
+            <n-radio-button value="both">{{ t('storeDeploy.both') }}</n-radio-button>
+            <n-radio-button value="worker">{{ t('storeDeploy.workerOnly') }}</n-radio-button>
+            <n-radio-button value="pages">{{ t('storeDeploy.pagesOnly') }}</n-radio-button>
           </n-radio-group>
         </n-form-item>
 
         <!-- Observability: Worker 特性，hybrid 模式选「仅 Pages」时不显示 -->
-        <n-form-item v-if="!isPagesOnly" label="可观测性">
+        <n-form-item v-if="!isPagesOnly" :label="t('storeDeploy.observability')">
           <n-space align="center" :size="24">
             <n-space align="center" :size="8">
               <n-switch v-model:value="enableLogs" size="small" />
               <n-tooltip>
                 <template #trigger>
-                  <span style="font-size: 13px; cursor: help">Workers 日志</span>
+                  <span style="font-size: 13px; cursor: help">{{ t('storeDeploy.logsLabel') }}</span>
                 </template>
-                开启后可在 Workers Logs 查看 console.log 与调用日志
+                {{ t('storeDeploy.logsTooltip') }}
               </n-tooltip>
             </n-space>
             <n-space align="center" :size="8">
               <n-switch v-model:value="enableTraces" size="small" />
               <n-tooltip>
                 <template #trigger>
-                  <span style="font-size: 13px; cursor: help">Workers 跟踪</span>
+                  <span style="font-size: 13px; cursor: help">{{ t('storeDeploy.tracesLabel') }}</span>
                 </template>
-                开启链路追踪与指标（Workers Observability）
+                {{ t('storeDeploy.tracesTooltip') }}
               </n-tooltip>
             </n-space>
           </n-space>
@@ -62,14 +62,14 @@
           :show-icon="true"
           style="font-size: 13px; margin: 4px 0 12px 0"
         >
-          部署后若访问出现 1101 错误，可在 Worker 设置 → 自定义域名 中添加一个域名即可解决
+          {{ t('storeDeploy.error1101Hint') }}
         </n-alert>
 
 
 
         <!-- Bindings -->
         <template v-if="template.bindings?.length">
-          <n-divider>绑定资源</n-divider>
+          <n-divider>{{ t('storeDeploy.bindings') }}</n-divider>
           <n-form-item v-for="b in resourceBindings" :key="b.name" :label="`${b.name} (${b.type})`">
             <n-space vertical style="width: 100%">
               <n-select
@@ -77,7 +77,7 @@
                 :options="getResourceOptions(b)"
                 :loading="resourceLoading[b.type]"
                 :disabled="isMultiAccount"
-                placeholder="选择资源"
+                :placeholder="t('storeDeploy.selectResource')"
                 @update:value="(val: string) => { onBindingSelect(b, val); invalidatePreflight(); }"
               />
               <!-- D1 init SQL checkbox -->
@@ -87,9 +87,9 @@
                 :disabled="isMultiAccount"
                 @update:checked="invalidatePreflight"
               >
-                执行初始化 SQL
+                {{ t('storeDeploy.runInitSql') }}
                 <span style="color: var(--text-color-3); font-size: 12px">
-                  ({{ bindingSelections[b.name].mode === 'existing' ? '复用时默认不勾' : '新建时默认勾' }})
+                  ({{ bindingSelections[b.name].mode === 'existing' ? t('storeDeploy.runInitSqlReuseHint') : t('storeDeploy.runInitSqlNewHint') }})
                 </span>
               </n-checkbox>
             </n-space>
@@ -98,31 +98,31 @@
 
         <!-- Secrets (var/prompt, secret !== false) -->
         <template v-if="secretBindings.length">
-          <n-divider>需要填写的密钥</n-divider>
+          <n-divider>{{ t('storeDeploy.secrets') }}</n-divider>
           <n-form-item v-for="b in secretBindings" :key="b.name" :required="b.required">
             <template #label>
               <span style="font-weight: 600">{{ b.title || b.name }}</span>
               <span v-if="b.title" style="color: var(--text-color-3); font-weight: normal; margin-left: 6px; font-size: 12px">{{ b.name }}</span>
             </template>
-            <n-input v-model:value="secretValues[b.name]" type="password" show-password-on="click" :placeholder="`输入 ${b.title || b.name}`" @update:value="invalidatePreflight" />
+            <n-input v-model:value="secretValues[b.name]" type="password" show-password-on="click" :placeholder="t('storeDeploy.secretPlaceholder', { name: b.title || b.name })" @update:value="invalidatePreflight" />
           </n-form-item>
         </template>
 
         <!-- Plain config (var/prompt, secret === false) -->
         <template v-if="plainBindings.length">
-          <n-divider>需要填写的配置项</n-divider>
+          <n-divider>{{ t('storeDeploy.plainConfigs') }}</n-divider>
           <n-form-item v-for="b in plainBindings" :key="b.name" :required="b.required">
             <template #label>
               <span style="font-weight: 600">{{ b.title || b.name }}</span>
               <span v-if="b.title" style="color: var(--text-color-3); font-weight: normal; margin-left: 6px; font-size: 12px">{{ b.name }}</span>
             </template>
-            <n-input v-model:value="secretValues[b.name]" :placeholder="`输入 ${b.title || b.name}`" @update:value="invalidatePreflight" />
+            <n-input v-model:value="secretValues[b.name]" :placeholder="t('storeDeploy.secretPlaceholder', { name: b.title || b.name })" @update:value="invalidatePreflight" />
           </n-form-item>
         </template>
 
         <!-- Env (read-only) -->
         <template v-if="template.env && Object.keys(template.env).length">
-          <n-divider>环境变量 (自动写入)</n-divider>
+          <n-divider>{{ t('storeDeploy.envVars') }}</n-divider>
           <n-descriptions label-placement="left" :column="1" size="small" bordered>
             <n-descriptions-item v-for="(v, k) in template.env" :key="k" :label="k">{{ v }}</n-descriptions-item>
           </n-descriptions>
@@ -130,7 +130,7 @@
 
         <!-- Crons (read-only) -->
         <template v-if="template.crons && template.crons.length">
-          <n-divider>定时任务 (自动注册)</n-divider>
+          <n-divider>{{ t('storeDeploy.crons') }}</n-divider>
           <n-space>
             <n-tag v-for="cron in template.crons" :key="cron" type="warning" :bordered="false" round>{{ cron }}</n-tag>
           </n-space>
@@ -138,28 +138,28 @@
 
         <!-- Preflight Results (仅在有警告或配置差异时展示) -->
         <template v-if="preflightResult && hasPreflightDetails">
-          <n-divider>预检结果</n-divider>
+          <n-divider>{{ t('storeDeploy.preflightResult') }}</n-divider>
           <n-space vertical :size="12">
             <n-space align="center" :size="8">
               <n-tag :type="preflightResult.workerExists ? 'warning' : 'success'" size="small" :bordered="false">
-                {{ preflightResult.workerExists ? 'Worker 已存在（将使用版本化部署）' : '新 Worker（将使用传统部署）' }}
+                {{ preflightResult.workerExists ? t('storeDeploy.workerExists') : t('storeDeploy.workerNew') }}
               </n-tag>
             </n-space>
             <template v-if="preflightResult.configDiff">
               <n-space vertical :size="4">
                 <n-text v-if="preflightResult.configDiff.added.length" depth="2" style="font-size: 13px">
-                  新增绑定: {{ preflightResult.configDiff.added.map((b: any) => `${b.name}(${b.type})`).join(', ') }}
+                  {{ t('storeDeploy.addedBindings', { items: preflightResult.configDiff.added.map((b: any) => `${b.name}(${b.type})`).join(', ') }) }}
                 </n-text>
                 <n-text v-if="preflightResult.configDiff.removed.length" type="warning" style="font-size: 13px">
-                  移除绑定: {{ preflightResult.configDiff.removed.map((b: any) => `${b.name}(${b.type})`).join(', ') }}
+                  {{ t('storeDeploy.removedBindings', { items: preflightResult.configDiff.removed.map((b: any) => `${b.name}(${b.type})`).join(', ') }) }}
                 </n-text>
                 <n-text v-if="preflightResult.configDiff.modified.length" type="warning" style="font-size: 13px">
-                  修改绑定: {{ preflightResult.configDiff.modified.map((b: any) => `${b.name}(${b.type})`).join(', ') }}
+                  {{ t('storeDeploy.modifiedBindings', { items: preflightResult.configDiff.modified.map((b: any) => `${b.name}(${b.type})`).join(', ') }) }}
                 </n-text>
               </n-space>
             </template>
             <n-alert v-if="preflightResult.secretsOverride.length" type="warning" :show-icon="true" style="font-size: 13px">
-              以下 Secrets 需要填写值: {{ preflightResult.secretsOverride.join(', ') }}
+              {{ t('storeDeploy.secretsOverride', { items: preflightResult.secretsOverride.join(', ') }) }}
             </n-alert>
             <n-alert
               v-for="(w, i) in preflightResult.warnings"
@@ -175,13 +175,13 @@
 
         <!-- 多账户部署结果 -->
         <template v-if="batchDeployResults.length">
-          <n-divider>部署结果</n-divider>
+          <n-divider>{{ t('storeDeploy.deployResults') }}</n-divider>
           <n-space vertical :size="6">
             <n-space v-for="r in batchDeployResults" :key="`result-${r.accountId}`" align="center" :size="6">
               <n-tag :type="r.success ? 'success' : 'error'" size="small" :bordered="false">
-                {{ r.success ? '成功' : '失败' }}
+                {{ r.success ? t('storeDeploy.success') : t('storeDeploy.failed') }}
               </n-tag>
-              <n-text style="font-size: 13px">{{ r.accountName || `账户#${r.accountId}` }}</n-text>
+              <n-text style="font-size: 13px">{{ r.accountName || t('storeDeploy.accountLabel', { id: r.accountId }) }}</n-text>
               <n-text v-if="!r.success" type="error" depth="3" style="font-size: 12px">{{ r.error }}</n-text>
             </n-space>
           </n-space>
@@ -191,15 +191,15 @@
 
     <template #footer>
       <n-space justify="end" :size="8">
-        <n-button @click="visible = false">取消</n-button>
+        <n-button @click="visible = false">{{ t('common.cancel') }}</n-button>
         <!-- 预检通过且有细节需要确认时，展示「确认部署」+「返回修改」 -->
         <template v-if="preflightResult && hasPreflightDetails && preflightResult.canProceed">
-          <n-button @click="invalidatePreflight">返回修改</n-button>
-          <n-button type="primary" :loading="deploying" @click="handleDeploy">确认部署</n-button>
+          <n-button @click="invalidatePreflight">{{ t('storeDeploy.backToEdit') }}</n-button>
+          <n-button type="primary" :loading="deploying" @click="handleDeploy">{{ t('storeDeploy.confirmDeploy') }}</n-button>
         </template>
         <!-- 正常流程：点击后自动先预检，通过则直接部署 -->
         <n-button v-else type="primary" :loading="preflighting || deploying" :disabled="!canDeploy" @click="handleDeploy">
-          {{ preflighting ? '预检中...' : '确认部署' }}
+          {{ preflighting ? t('storeDeploy.preflighting') : t('storeDeploy.confirmDeploy') }}
         </n-button>
       </n-space>
     </template>
@@ -208,11 +208,14 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, h } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { storeApi } from '../api/store';
 import { workersApi } from '../api/workers';
 import { accountsApi } from '../api/accounts';
 import { NTag } from 'naive-ui';
 import { message } from '../utils/discreteApi';
+
+const { t } = useI18n();
 
 const props = defineProps<{ show: boolean; template: any }>();
 const emit = defineEmits<{ 'update:show': [boolean]; deployed: [any] }>();
@@ -311,7 +314,7 @@ const isMultiAccount = computed(() => form.value.accountIds.length > 1);
 function getResourceOptions(binding: any) {
   const resources = existingResources.value[binding.type] || [];
   const title = binding.title || `${props.template?.id}-${binding.name.toLowerCase()}`;
-  const options = [{ label: `自动创建/复用: ${title}`, value: '__auto__' }];
+  const options = [{ label: t('storeDeploy.autoCreate', { name: title }), value: '__auto__' }];
   for (const r of resources) {
     const label = r.title || r.name || r.id;
     options.push({ label, value: r.id || r.uuid || r.name });
@@ -343,26 +346,25 @@ async function onAccountChange() {
   if (!selectedIds.length) return;
   // 多账户模式下，加载第一个账户的资源供参考（所有账户都会使用 auto 模式）
   const firstId = selectedIds[0];
-  const neededTypes = (Array.from(new Set((props.template?.bindings || []).map((b: any) => b.type))))
-    .filter((t: any) => t === 'kv' || t === 'd1' || t === 'r2') as ('kv' | 'd1' | 'r2')[];
+  const neededTypes = (Array.from(new Set((props.template?.bindings || []).map((b: any) => b.type)))).filter((ty: any) => ty === 'kv' || ty === 'd1' || ty === 'r2') as ('kv' | 'd1' | 'r2')[];
   if (neededTypes.length === 0) return;
-  for (const type of neededTypes) {
-    resourceLoading.value[type] = true;
+  for (const ty of neededTypes) {
+    resourceLoading.value[ty] = true;
     try {
-      if (type === 'kv') {
+      if (ty === 'kv') {
         const { data } = await workersApi.getKvNamespaces(firstId);
         existingResources.value.kv = data as any[];
-      } else if (type === 'd1') {
+      } else if (ty === 'd1') {
         const { data } = await workersApi.getD1Databases(firstId);
         existingResources.value.d1 = data as any[];
-      } else if (type === 'r2') {
+      } else if (ty === 'r2') {
         const { data } = await workersApi.getR2Buckets(firstId, { _silent: true });
         existingResources.value.r2 = data as any[];
       }
-    } catch (e: any) {
-      existingResources.value[type] = [];
+    } catch {
+      existingResources.value[ty] = [];
     } finally {
-      resourceLoading.value[type] = false;
+      resourceLoading.value[ty] = false;
     }
   }
 }
@@ -420,7 +422,7 @@ async function handleDeploy() {
     preflightResult.value = pfData;
 
     if (!pfData.canProceed) {
-      message.error('预检未通过，请检查上方提示');
+      message.error(t('storeDeploy.msg.preflightFailed'));
       return;
     }
 
@@ -430,7 +432,7 @@ async function handleDeploy() {
     }
   } catch (e: any) {
     preflightResult.value = null;
-    message.error(`预检失败: ${e.errorMessage || e.message || '未知错误'}`);
+    message.error(t('storeDeploy.msg.preflightError', { error: e.errorMessage || e.message || t('common.unknown') }));
   } finally {
     preflighting.value = false;
   }
@@ -493,7 +495,7 @@ async function doBatchDeploy() {
       const accountName = r.accountName || accounts.value.find((a: any) => a.id === r.accountId)?.name;
       return {
         accountId: r.accountId,
-        accountName: accountName || `账户 #${r.accountId}`,
+        accountName: accountName || t('storeDeploy.accountLabel', { id: r.accountId }),
         success: r.success,
         error: r.error,
       };
@@ -504,11 +506,11 @@ async function doBatchDeploy() {
     const failCount = results.length - successCount;
 
     if (failCount === 0) {
-      message.success(`批量部署完成: ${successCount}/${results.length} 成功`);
+      message.success(t('storeDeploy.msg.batchSuccess', { success: successCount, total: results.length }));
       emit('deployed', { success: true, batchResults: results });
       visible.value = false;
     } else {
-      message.warning(`批量部署: ${successCount} 成功, ${failCount} 失败`);
+      message.warning(t('storeDeploy.msg.batchPartial', { success: successCount, failed: failCount }));
       emit('deployed', { success: false, batchResults: results });
     }
   } catch (e: any) {
@@ -516,12 +518,12 @@ async function doBatchDeploy() {
       const account = accounts.value.find((a: any) => a.id === accountId);
       return {
         accountId,
-        accountName: account?.name || `账户 #${accountId}`,
+        accountName: account?.name || t('storeDeploy.accountLabel', { id: accountId }),
         success: false,
-        error: e.errorMessage || e.message || '批量部署请求失败',
+        error: e.errorMessage || e.message || t('storeDeploy.msg.batchFailed', { error: '' }),
       };
     });
-    message.error(`批量部署失败: ${e.errorMessage || e.message || '未知错误'}`);
+    message.error(t('storeDeploy.msg.batchFailed', { error: e.errorMessage || e.message || t('common.unknown') }));
   } finally {
     deploying.value = false;
   }

@@ -1,19 +1,19 @@
 <template>
   <div class="page-view">
-    <n-h2>存储管理</n-h2>
+    <n-h2>{{ t('storage.title') }}</n-h2>
     <n-space align="center" style="margin-bottom: 16px">
-     <span>账号：</span>
-      <n-select v-model:value="selectedAccount" :options="accountOptions" :render-label="renderAccountLabel" filterable placeholder="搜索账号" style="width: 200px; max-width: 60vw" size="small" @update:value="onAccountChange" />
+     <span>{{ t('storage.accountLabel') }}</span>
+      <n-select v-model:value="selectedAccount" :options="accountOptions" :render-label="renderAccountLabel" filterable :placeholder="t('storage.searchAccount')" style="width: 200px; max-width: 60vw" size="small" @update:value="onAccountChange" />
    </n-space>
 
     <n-tabs v-model:value="activeTab" type="line">
       <!-- ============ KV Tab ============ -->
-      <n-tab-pane name="kv" tab="KV 存储">
+      <n-tab-pane name="kv" :tab="t('storage.kv')">
         <n-grid :cols="24" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
           <n-gi span="24 m:6">
-            <n-card title="命名空间" size="small">
+            <n-card :title="t('storage.namespace')" size="small">
               <template #header-extra>
-                <n-button size="tiny" type="primary" @click="handleCreateKvNs">新建</n-button>
+                <n-button size="tiny" type="primary" @click="handleCreateKvNs">{{ t('storage.create') }}</n-button>
               </template>
               <n-spin :show="kvNsLoading">
                 <n-list hoverable clickable>
@@ -25,7 +25,7 @@
                     </div>
                   </n-list-item>
                 </n-list>
-                <n-empty v-if="!kvNamespaces.length && !kvNsLoading" description="暂无命名空间" />
+                <n-empty v-if="!kvNamespaces.length && !kvNsLoading" :description="t('storage.noNamespace')" />
               </n-spin>
             </n-card>
           </n-gi>
@@ -33,13 +33,13 @@
             <n-card :title="selectedKvNs ? `Keys - ${selectedKvNs.title || selectedKvNs.id}` : 'Keys'" size="small">
               <template #header-extra>
                 <n-space>
-                  <n-input v-model:value="kvPrefix" placeholder="前缀过滤" size="small" style="width: 200px" @keyup.enter="() => loadKvKeys()" clearable />
-                  <n-button size="small" type="primary" @click="showKvEditor = true" :disabled="!selectedKvNs">新建</n-button>
+                  <n-input v-model:value="kvPrefix" :placeholder="t('storage.prefixFilter')" size="small" style="width: 200px" @keyup.enter="() => loadKvKeys()" clearable />
+                  <n-button size="small" type="primary" @click="showKvEditor = true" :disabled="!selectedKvNs">{{ t('storage.create') }}</n-button>
                 </n-space>
               </template>
               <n-data-table :columns="kvColumns" :data="kvKeys" :loading="kvKeysLoading" size="small" :bordered="false" :scroll-x="500" />
               <n-space v-if="kvCursor" justify="center" style="margin-top: 12px">
-                <n-button size="small" @click="loadKvKeys(kvCursor)">加载更多</n-button>
+                <n-button size="small" @click="loadKvKeys(kvCursor)">{{ t('storage.loadMore') }}</n-button>
               </n-space>
             </n-card>
           </n-gi>
@@ -47,12 +47,12 @@
       </n-tab-pane>
 
       <!-- ============ D1 Tab ============ -->
-      <n-tab-pane name="d1" tab="D1 数据库">
+      <n-tab-pane name="d1" :tab="t('storage.d1')">
         <n-grid :cols="24" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
           <n-gi span="24 m:6">
-            <n-card title="数据库" size="small">
+            <n-card :title="t('storage.database')" size="small">
               <template #header-extra>
-                <n-button size="tiny" type="primary" @click="handleCreateD1Db">新建</n-button>
+                <n-button size="tiny" type="primary" @click="handleCreateD1Db">{{ t('storage.create') }}</n-button>
               </template>
               <n-spin :show="d1DbLoading">
                 <n-list hoverable clickable>
@@ -64,33 +64,33 @@
                     </div>
                   </n-list-item>
                 </n-list>
-                <n-empty v-if="!d1Databases.length && !d1DbLoading" description="暂无数据库" />
+                <n-empty v-if="!d1Databases.length && !d1DbLoading" :description="t('storage.noDatabase')" />
               </n-spin>
             </n-card>
-            <n-card v-if="selectedD1Db" title="表" size="small" style="margin-top: 12px">
+            <n-card v-if="selectedD1Db" :title="t('storage.tables')" size="small" style="margin-top: 12px">
               <template #header-extra>
-                <n-button size="tiny" type="primary" @click="showD1CreateTable = true">建表</n-button>
+                <n-button size="tiny" type="primary" @click="showD1CreateTable = true">{{ t('storage.createTable') }}</n-button>
               </template>
               <n-list hoverable clickable>
                 <n-list-item v-for="t in d1Tables" :key="t.name">
                   <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
                     <span style="cursor: pointer; flex: 1" @click="d1Sql = `SELECT * FROM ${t.name} LIMIT 100`; executeD1()">{{ t.name }}</span>
-                    <n-button size="tiny" quaternary @click.stop="openD1TableSchema(t.name)" title="查看结构">⚙</n-button>
+                    <n-button size="tiny" quaternary @click.stop="openD1TableSchema(t.name)" :title="t('storage.viewSchema')">⚙</n-button>
                   </div>
                 </n-list-item>
               </n-list>
-              <n-empty v-if="!d1Tables.length" description="暂无表" />
+              <n-empty v-if="!d1Tables.length" :description="t('storage.noTables')" />
             </n-card>
           </n-gi>
           <n-gi span="24 m:18">
-            <n-card title="SQL 查询" size="small">
-              <n-input v-model:value="d1Sql" type="textarea" :rows="4" placeholder="输入 SQL 查询..." style="margin-bottom: 12px; font-family: monospace;" />
+            <n-card :title="t('storage.sqlQuery')" size="small">
+              <n-input v-model:value="d1Sql" type="textarea" :rows="4" :placeholder="t('storage.sqlPlaceholder')" style="margin-bottom: 12px; font-family: monospace;" />
               <n-space>
-                <n-button type="primary" size="small" @click="executeD1" :loading="d1Loading" :disabled="!selectedD1Db || !d1Sql">执行</n-button>
-                <n-checkbox v-model:checked="d1AllowWrite" size="small" :disabled="isDemoSelected">允许写操作</n-checkbox>
+                <n-button type="primary" size="small" @click="executeD1" :loading="d1Loading" :disabled="!selectedD1Db || !d1Sql">{{ t('storage.execute') }}</n-button>
+                <n-checkbox v-model:checked="d1AllowWrite" size="small" :disabled="isDemoSelected">{{ t('storage.allowWrite') }}</n-checkbox>
               </n-space>
               <div v-if="d1Result" style="margin-top: 16px">
-                <n-text depth="3" style="font-size: 12px">{{ d1Result.meta?.rows_read || 0 }} 行读取, {{ d1Result.meta?.rows_written || 0 }} 行写入, {{ d1Result.meta?.duration || 0 }}ms</n-text>
+                <n-text depth="3" style="font-size: 12px">{{ t('storage.rowsRead', { count: d1Result.meta?.rows_read || 0 }) }} {{ t('storage.rowsWritten', { count: d1Result.meta?.rows_written || 0 }) }} {{ t('storage.duration', { ms: d1Result.meta?.duration || 0 }) }}</n-text>
                 <n-data-table v-if="d1ResultColumns.length" :columns="d1ResultColumns" :data="d1Result.results || []" size="small" :bordered="false" style="margin-top: 8px" :max-height="400" virtual-scroll :scroll-x="600" />
               </div>
             </n-card>
@@ -99,12 +99,12 @@
       </n-tab-pane>
 
       <!-- ============ R2 Tab ============ -->
-      <n-tab-pane v-if="r2Available" name="r2" tab="R2 存储">
+      <n-tab-pane v-if="r2Available" name="r2" :tab="t('storage.r2')">
         <n-grid :cols="24" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
           <n-gi span="24 m:6">
-            <n-card title="存储桶" size="small">
+            <n-card :title="t('storage.bucket')" size="small">
               <template #header-extra>
-                <n-button size="tiny" type="primary" @click="handleCreateR2Bucket">新建</n-button>
+                <n-button size="tiny" type="primary" @click="handleCreateR2Bucket">{{ t('storage.create') }}</n-button>
               </template>
               <n-spin :show="r2BucketLoading">
                 <n-list hoverable clickable>
@@ -116,17 +116,17 @@
                     </div>
                   </n-list-item>
                 </n-list>
-                <n-empty v-if="!r2Buckets.length && !r2BucketLoading" description="暂无存储桶" />
+                <n-empty v-if="!r2Buckets.length && !r2BucketLoading" :description="t('storage.noBucket')" />
               </n-spin>
             </n-card>
           </n-gi>
           <n-gi span="24 m:18">
-            <n-card :title="selectedR2Bucket ? `文件 - ${selectedR2Bucket.name}` : '文件'" size="small">
+            <n-card :title="selectedR2Bucket ? `${t('storage.files')} - ${selectedR2Bucket.name}` : t('storage.files')" size="small">
               <template #header-extra>
-                <n-button size="small" type="primary" @click="showR2Upload = true" :disabled="!selectedR2Bucket">上传</n-button>
+                <n-button size="small" type="primary" @click="showR2Upload = true" :disabled="!selectedR2Bucket">{{ t('storage.upload') }}</n-button>
               </template>
               <n-breadcrumb v-if="r2Prefix" style="margin-bottom: 12px">
-                <n-breadcrumb-item @click="r2Prefix = ''; loadR2Objects()">根目录</n-breadcrumb-item>
+                <n-breadcrumb-item @click="r2Prefix = ''; loadR2Objects()">{{ t('storage.rootDir') }}</n-breadcrumb-item>
                 <n-breadcrumb-item v-for="(part, i) in r2PrefixParts" :key="i"
                   @click="r2Prefix = r2PrefixParts.slice(0, i + 1).join('/') + '/'; loadR2Objects()">
                   {{ part }}
@@ -140,39 +140,39 @@
     </n-tabs>
 
     <!-- KV Editor Modal -->
-    <n-modal v-model:show="showKvEditor" preset="dialog" :title="kvEditKey ? '编辑 KV' : '新建 KV'" style="width: 600px; max-width: 95vw">
+    <n-modal v-model:show="showKvEditor" preset="dialog" :title="kvEditKey ? t('storage.kvEditorEditTitle') : t('storage.kvEditorTitle')" style="width: 600px; max-width: 95vw">
       <n-form label-placement="left" label-width="80">
         <n-form-item label="Key">
-          <n-input v-model:value="kvEditForm.key" :disabled="!!kvEditKey" placeholder="key 名称" />
+          <n-input v-model:value="kvEditForm.key" :disabled="!!kvEditKey" :placeholder="t('storage.keyPlaceholder')" />
         </n-form-item>
         <n-form-item label="Value">
-          <n-input v-model:value="kvEditForm.value" type="textarea" :rows="6" placeholder="值" style="font-family: monospace" />
+          <n-input v-model:value="kvEditForm.value" type="textarea" :rows="6" :placeholder="t('storage.valuePlaceholder')" style="font-family: monospace" />
         </n-form-item>
-        <n-form-item label="TTL (秒)">
-          <n-input-number v-model:value="kvEditForm.ttl" :min="60" placeholder="留空则永不过期" clearable />
+        <n-form-item :label="t('storage.ttlSeconds')">
+          <n-input-number v-model:value="kvEditForm.ttl" :min="60" :placeholder="t('storage.ttlPlaceholder')" clearable />
         </n-form-item>
       </n-form>
       <template #action>
-        <n-button @click="showKvEditor = false">取消</n-button>
-        <n-button type="primary" :loading="kvSaving" @click="handleSaveKv">保存</n-button>
+        <n-button @click="showKvEditor = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="kvSaving" @click="handleSaveKv">{{ t('common.save') }}</n-button>
       </template>
     </n-modal>
 
     <!-- R2 Upload Modal -->
-    <n-modal v-model:show="showR2Upload" preset="dialog" title="上传文件" style="width: 500px; max-width: 95vw">
+    <n-modal v-model:show="showR2Upload" preset="dialog" :title="t('storage.uploadFileTitle')" style="width: 500px; max-width: 95vw">
       <n-form label-placement="left" label-width="80">
-        <n-form-item label="路径前缀">
+        <n-form-item :label="t('storage.pathPrefix')">
           <n-input v-model:value="r2UploadPrefix" :placeholder="r2Prefix || '/'" />
         </n-form-item>
-        <n-form-item label="文件">
+        <n-form-item :label="t('storage.files')">
           <n-upload :max="1" @change="({ file }: any) => r2UploadFile = file.file || null">
-            <n-button size="small">选择文件</n-button>
+            <n-button size="small">{{ t('storage.selectFile') }}</n-button>
           </n-upload>
         </n-form-item>
       </n-form>
       <template #action>
-        <n-button @click="showR2Upload = false">取消</n-button>
-        <n-button type="primary" :loading="r2Uploading" @click="handleR2Upload">上传</n-button>
+        <n-button @click="showR2Upload = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="r2Uploading" @click="handleR2Upload">{{ t('storage.upload') }}</n-button>
       </template>
     </n-modal>
 
@@ -184,71 +184,71 @@
         </n-form-item>
       </n-form>
       <template #action>
-        <n-button @click="showCreateModal = false">取消</n-button>
-        <n-button type="primary" :loading="createModalLoading" @click="handleCreateConfirm">创建</n-button>
+        <n-button @click="showCreateModal = false">{{ t('common.cancel') }}</n-button>
+        <n-button type="primary" :loading="createModalLoading" @click="handleCreateConfirm">{{ t('common.create') }}</n-button>
       </template>
     </n-modal>
 
     <!-- D1 Table Schema Modal -->
-    <n-modal v-model:show="showD1Schema" preset="card" :title="`表结构 - ${d1SchemaTable}`" style="width: 700px; max-width: 95vw">
+    <n-modal v-model:show="showD1Schema" preset="card" :title="t('storage.tableStructure', { name: d1SchemaTable })" style="width: 700px; max-width: 95vw">
       <n-data-table :columns="d1SchemaColumns" :data="d1SchemaData" :loading="d1SchemaLoading" size="small" :bordered="false" :scroll-x="500" />
       <n-space style="margin-top: 16px">
-        <n-button size="small" type="primary" @click="showD1AddColumn = true">添加列</n-button>
-        <n-button size="small" type="warning" @click="showD1RenameColumn = true" :disabled="!d1SchemaData.length">重命名列</n-button>
-        <n-button size="small" type="error" @click="showD1DropColumn = true" :disabled="isDemoSelected || !d1SchemaData.length">删除列</n-button>
-        <n-button size="small" type="error" @click="handleD1DropTable" :disabled="isDemoSelected">删除此表</n-button>
+        <n-button size="small" type="primary" @click="showD1AddColumn = true">{{ t('storage.addColumn') }}</n-button>
+        <n-button size="small" type="warning" @click="showD1RenameColumn = true" :disabled="!d1SchemaData.length">{{ t('storage.renameColumn') }}</n-button>
+        <n-button size="small" type="error" @click="showD1DropColumn = true" :disabled="isDemoSelected || !d1SchemaData.length">{{ t('storage.dropColumn') }}</n-button>
+        <n-button size="small" type="error" @click="handleD1DropTable" :disabled="isDemoSelected">{{ t('storage.dropTable') }}</n-button>
       </n-space>
 
       <!-- Add Column inline -->
-      <n-card v-if="showD1AddColumn" title="添加列" size="small" style="margin-top: 12px">
+      <n-card v-if="showD1AddColumn" :title="t('storage.addColumn')" size="small" style="margin-top: 12px">
         <n-space>
-          <n-input v-model:value="d1AddColName" size="small" placeholder="列名" style="width: 120px" />
+          <n-input v-model:value="d1AddColName" size="small" :placeholder="t('storage.columnNamePlaceholder')" style="width: 120px" />
           <n-select v-model:value="d1AddColType" size="small" :options="d1TypeOptions" style="width: 120px" />
           <n-checkbox v-model:checked="d1AddColNotNull" size="small">NOT NULL</n-checkbox>
-          <n-input v-model:value="d1AddColDefault" size="small" placeholder="默认值" style="width: 100px" />
-          <n-button size="small" type="primary" @click="handleD1AddColumn" :disabled="!d1AddColName">确认</n-button>
-          <n-button size="small" @click="showD1AddColumn = false">取消</n-button>
+          <n-input v-model:value="d1AddColDefault" size="small" :placeholder="t('storage.defaultValuePlaceholder')" style="width: 100px" />
+          <n-button size="small" type="primary" @click="handleD1AddColumn" :disabled="!d1AddColName">{{ t('common.confirm') }}</n-button>
+          <n-button size="small" @click="showD1AddColumn = false">{{ t('common.cancel') }}</n-button>
         </n-space>
       </n-card>
 
       <!-- Rename Column inline -->
-      <n-card v-if="showD1RenameColumn" title="重命名列" size="small" style="margin-top: 12px">
+      <n-card v-if="showD1RenameColumn" :title="t('storage.renameColumn')" size="small" style="margin-top: 12px">
         <n-space>
-          <n-select v-model:value="d1RenameOld" size="small" :options="d1SchemaData.map((c: any) => ({ label: c.name, value: c.name }))" placeholder="原列名" style="width: 140px" />
-          <n-input v-model:value="d1RenameNew" size="small" placeholder="新列名" style="width: 140px" />
-          <n-button size="small" type="primary" @click="handleD1RenameColumn" :disabled="!d1RenameOld || !d1RenameNew">确认</n-button>
-          <n-button size="small" @click="showD1RenameColumn = false">取消</n-button>
+          <n-select v-model:value="d1RenameOld" size="small" :options="d1SchemaData.map((c: any) => ({ label: c.name, value: c.name }))" :placeholder="t('storage.oldColumnName')" style="width: 140px" />
+          <n-input v-model:value="d1RenameNew" size="small" :placeholder="t('storage.newColumnName')" style="width: 140px" />
+          <n-button size="small" type="primary" @click="handleD1RenameColumn" :disabled="!d1RenameOld || !d1RenameNew">{{ t('common.confirm') }}</n-button>
+          <n-button size="small" @click="showD1RenameColumn = false">{{ t('common.cancel') }}</n-button>
         </n-space>
       </n-card>
 
       <!-- Drop Column inline -->
-      <n-card v-if="showD1DropColumn" title="删除列" size="small" style="margin-top: 12px">
+      <n-card v-if="showD1DropColumn" :title="t('storage.dropColumn')" size="small" style="margin-top: 12px">
         <n-space>
-          <n-select v-model:value="d1DropColName" size="small" :options="d1SchemaData.map((c: any) => ({ label: c.name, value: c.name }))" placeholder="选择要删除的列" style="width: 180px" />
-          <n-button size="small" type="error" @click="handleD1DropColumn" :disabled="!d1DropColName">确认删除</n-button>
-          <n-button size="small" @click="showD1DropColumn = false">取消</n-button>
+          <n-select v-model:value="d1DropColName" size="small" :options="d1SchemaData.map((c: any) => ({ label: c.name, value: c.name }))" :placeholder="t('storage.selectDropColumn')" style="width: 180px" />
+          <n-button size="small" type="error" @click="handleD1DropColumn" :disabled="!d1DropColName">{{ t('storage.confirmDelete') }}</n-button>
+          <n-button size="small" @click="showD1DropColumn = false">{{ t('common.cancel') }}</n-button>
         </n-space>
       </n-card>
     </n-modal>
 
     <!-- D1 Create Table Modal -->
-    <n-modal v-model:show="showD1CreateTable" preset="card" title="新建表" style="width: 700px; max-width: 95vw">
+    <n-modal v-model:show="showD1CreateTable" preset="card" :title="t('storage.createTableTitle')" style="width: 700px; max-width: 95vw">
       <n-form label-placement="left" label-width="80">
-        <n-form-item label="表名">
-          <n-input v-model:value="d1NewTableName" placeholder="表名（字母、数字、下划线）" />
+        <n-form-item :label="t('storage.tableName')">
+          <n-input v-model:value="d1NewTableName" :placeholder="t('storage.tableNamePlaceholder')" />
         </n-form-item>
       </n-form>
       <n-data-table :columns="d1ColDefColumns" :data="d1NewTableCols" size="small" :bordered="false" style="margin-top: 8px" :scroll-x="500" />
       <n-space style="margin-top: 12px">
-        <n-button size="small" @click="d1NewTableCols.push({ name: '', type: 'TEXT', primaryKey: false, notNull: false, defaultVal: '' })">添加列</n-button>
+        <n-button size="small" @click="d1NewTableCols.push({ name: '', type: 'TEXT', primaryKey: false, notNull: false, defaultVal: '' })">{{ t('storage.addColumn') }}</n-button>
       </n-space>
-      <n-card title="预览 SQL" size="small" style="margin-top: 16px">
+      <n-card :title="t('storage.previewSql')" size="small" style="margin-top: 16px">
         <n-code :code="d1CreateTableSql" language="sql" />
       </n-card>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="showD1CreateTable = false">取消</n-button>
-          <n-button type="primary" :loading="d1Creating" @click="handleD1CreateTable" :disabled="!d1NewTableName || !d1NewTableCols.some((c: any) => c.name)">执行建表</n-button>
+          <n-button @click="showD1CreateTable = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" :loading="d1Creating" @click="handleD1CreateTable" :disabled="!d1NewTableName || !d1NewTableCols.some((c: any) => c.name)">{{ t('storage.executeCreateTable') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -261,8 +261,8 @@
       </div>
       <template #footer>
         <n-space justify="end">
-          <n-button size="small" @click="handleDownloadR2({ name: r2PreviewName, key: r2PreviewKey })">下载原文件</n-button>
-          <n-button size="small" @click="showR2Preview = false">关闭</n-button>
+          <n-button size="small" @click="handleDownloadR2({ name: r2PreviewName, key: r2PreviewKey })">{{ t('storage.downloadOriginal') }}</n-button>
+          <n-button size="small" @click="showR2Preview = false">{{ t('common.close') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -273,11 +273,13 @@
 import { ref, computed, h, onMounted, watch } from 'vue';
 import { NButton, NSpace, NInput, NSelect, NCheckbox, NTag, useMessage, useDialog } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
+import { useI18n } from 'vue-i18n';
 import { storageApi } from '../api/storage';
 import { accountsApi } from '../api/accounts';
 import { formatCN } from '../utils/dateFormat';
 import { loadDemoAccounts, isDemoAccount } from '../utils/demoAccounts';
 
+const { t } = useI18n();
 const message = useMessage();
 const dialog = useDialog();
 
@@ -286,8 +288,8 @@ function confirmAction(title: string, content: string): Promise<boolean> {
     dialog.warning({
       title,
       content,
-      positiveText: '确认删除',
-      negativeText: '取消',
+      positiveText: t('storage.confirmDelete'),
+      negativeText: t('common.cancel'),
       onPositiveClick: () => resolve(true),
       onNegativeClick: () => resolve(false),
       onClose: () => resolve(false),
@@ -360,7 +362,7 @@ const kvSaving = ref(false);
 // ============ 通用创建 Modal ============
 const showCreateModal = ref(false);
 const createModalTitle = ref('');
-const createModalLabel = ref('名称');
+const createModalLabel = computed(() => t('storage.nameLabel'));
 const createModalPlaceholder = ref('');
 const createModalName = ref('');
 const createModalLoading = ref(false);
@@ -385,9 +387,9 @@ async function handleCreateConfirm() {
 
 async function handleDeleteKvNs(ns: any) {
   if (!selectedAccount.value) return;
-  if (!await confirmAction('删除命名空间', `确定删除命名空间 "${ns.title || ns.id}" 吗？所有 KV 数据将丢失！`)) return;
+  if (!await confirmAction(t('storage.msg.deleteTitle'), t('storage.msg.deleteNamespaceConfirm', { name: ns.title || ns.id }))) return;
   await storageApi.deleteKvNamespace(selectedAccount.value, ns.id);
-  message.success('命名空间已删除');
+  message.success(t('storage.msg.namespaceDeleted'));
   if (selectedKvNs.value?.id === ns.id) {
     selectedKvNs.value = null;
     kvKeys.value = [];
@@ -397,9 +399,9 @@ async function handleDeleteKvNs(ns: any) {
 
 function handleCreateKvNs() {
   if (!selectedAccount.value) return;
-  openCreateModal('新建 KV 命名空间', '输入命名空间名称', async (name) => {
+  openCreateModal(t('storage.kvEditorTitle'), '', async (name) => {
     await storageApi.createKvNamespace(selectedAccount.value!, name);
-    message.success('命名空间已创建');
+    message.success(t('storage.msg.namespaceCreated'));
     loadKvNamespaces();
   });
 }
@@ -459,7 +461,7 @@ async function handleSaveKv() {
     await storageApi.putKvValue(selectedAccount.value, selectedKvNs.value.id, kvEditForm.value.key, kvEditForm.value.value, {
       expiration_ttl: kvEditForm.value.ttl || undefined,
     });
-    message.success('KV 已保存');
+    message.success(t('storage.msg.kvSaved'));
     showKvEditor.value = false;
     kvEditKey.value = '';
     loadKvKeys();
@@ -469,23 +471,23 @@ async function handleSaveKv() {
 async function handleDeleteKv(row: any) {
   if (!selectedAccount.value || !selectedKvNs.value) return;
   await storageApi.deleteKvKey(selectedAccount.value, selectedKvNs.value.id, row.name);
-  message.success('已删除');
+  message.success(t('storage.msg.deleted'));
   loadKvKeys();
 }
 
-const kvColumns: DataTableColumns<any> = [
+const kvColumns = computed<DataTableColumns<any>>(() => [
   { title: 'Key', key: 'name', width: 180, minWidth: 100, ellipsis: { tooltip: true } },
-  { title: '过期时间', key: 'expiration', width: 180, render: (row) => row.expiration ? formatCN(row.expiration * 1000) : '永不' },
+  { title: t('storage.ttl'), key: 'expiration', width: 180, render: (row) => row.expiration ? formatCN(row.expiration * 1000) : t('storage.never') },
   {
-    title: '操作', key: 'actions', width: 140,
+    title: t('common.actions'), key: 'actions', width: 140,
     render: (row) => h(NSpace, null, { default: () => [
-      h(NButton, { size: 'small', onClick: () => viewKvValue(row) }, { default: () => '查看' }),
+      h(NButton, { size: 'small', onClick: () => viewKvValue(row) }, { default: () => t('storage.view') }),
       ...(isDemoSelected.value ? [] : [
-        h(NButton, { size: 'small', type: 'error', onClick: () => handleDeleteKv(row) }, { default: () => '删除' }),
+        h(NButton, { size: 'small', type: 'error', onClick: () => handleDeleteKv(row) }, { default: () => t('common.delete') }),
       ]),
     ]}),
   },
-];
+]);
 
 // ============ D1 ============
 const d1Databases = ref<any[]>([]);
@@ -506,9 +508,9 @@ const d1ResultColumns = computed<DataTableColumns<any>>(() => {
 
 async function handleDeleteD1Db(db: any) {
   if (!selectedAccount.value) return;
-  if (!await confirmAction('删除数据库', `确定删除数据库 "${db.name}" 吗？所有数据将丢失！`)) return;
+  if (!await confirmAction(t('storage.msg.deleteDatabaseTitle'), t('storage.msg.deleteDatabaseConfirm', { name: db.name }))) return;
   await storageApi.deleteD1Database(selectedAccount.value, db.uuid || db.id);
-  message.success('数据库已删除');
+  message.success(t('storage.msg.databaseDeleted'));
   if (selectedD1Db.value?.uuid === db.uuid) {
     selectedD1Db.value = null;
     d1Tables.value = [];
@@ -519,9 +521,9 @@ async function handleDeleteD1Db(db: any) {
 
 function handleCreateD1Db() {
   if (!selectedAccount.value) return;
-  openCreateModal('新建 D1 数据库', '输入数据库名称', async (name) => {
+  openCreateModal(t('storage.d1'), '', async (name) => {
     await storageApi.createD1Database(selectedAccount.value!, name);
-    message.success('数据库已创建');
+    message.success(t('storage.msg.databaseCreated'));
     loadD1Databases();
   });
 }
@@ -573,14 +575,14 @@ const d1RenameNew = ref('');
 const showD1DropColumn = ref(false);
 const d1DropColName = ref('');
 
-const d1SchemaColumns: DataTableColumns<any> = [
+const d1SchemaColumns = computed<DataTableColumns<any>>(() => [
   { title: '#', key: 'cid', width: 40 },
-  { title: '列名', key: 'name', width: 140 },
-  { title: '类型', key: 'type', width: 100 },
-  { title: 'NOT NULL', key: 'notnull', width: 80, render: (row) => row.notnull ? '是' : '否' },
-  { title: '默认值', key: 'dflt_value', width: 100, render: (row) => row.dflt_value ?? '-' },
-  { title: '主键', key: 'pk', width: 60, render: (row) => row.pk ? '是' : '' },
-];
+  { title: t('storage.columnName'), key: 'name', width: 140 },
+  { title: t('storage.columnType'), key: 'type', width: 100 },
+  { title: 'NOT NULL', key: 'notnull', width: 80, render: (row) => row.notnull ? t('common.yes') : t('common.no') },
+  { title: t('storage.defaultValue'), key: 'dflt_value', width: 100, render: (row) => row.dflt_value ?? '-' },
+  { title: t('storage.primaryKey'), key: 'pk', width: 60, render: (row) => row.pk ? t('common.yes') : '' },
+]);
 
 async function openD1TableSchema(tableName: string) {
   if (!selectedAccount.value || !selectedD1Db.value) return;
@@ -608,14 +610,14 @@ async function handleD1AddColumn() {
   if (d1AddColNotNull.value && d1AddColDefault.value) sql += ` NOT NULL DEFAULT ${d1AddColDefault.value}`;
   else if (d1AddColDefault.value) sql += ` DEFAULT ${d1AddColDefault.value}`;
   await runD1Alter(sql);
-  message.success(`列 ${d1AddColName.value} 已添加`);
+  message.success(t('storage.msg.columnAdded', { name: d1AddColName.value }));
   d1AddColName.value = '';
   showD1AddColumn.value = false;
 }
 
 async function handleD1RenameColumn() {
   await runD1Alter(`ALTER TABLE ${d1SchemaTable.value} RENAME COLUMN ${d1RenameOld.value} TO ${d1RenameNew.value}`);
-  message.success('列已重命名');
+  message.success(t('storage.msg.columnRenamed'));
   d1RenameOld.value = '';
   d1RenameNew.value = '';
   showD1RenameColumn.value = false;
@@ -623,15 +625,15 @@ async function handleD1RenameColumn() {
 
 async function handleD1DropColumn() {
   await runD1Alter(`ALTER TABLE ${d1SchemaTable.value} DROP COLUMN ${d1DropColName.value}`);
-  message.success(`列 ${d1DropColName.value} 已删除`);
+  message.success(t('storage.msg.columnDeleted', { name: d1DropColName.value }));
   d1DropColName.value = '';
   showD1DropColumn.value = false;
 }
 
 async function handleD1DropTable() {
-  if (!await confirmAction('删除表', `确定要删除表 "${d1SchemaTable.value}" 吗？此操作不可恢复！`)) return;
+  if (!await confirmAction(t('storage.msg.deleteTableTitle'), t('storage.msg.deleteTableConfirm', { name: d1SchemaTable.value }))) return;
   await runD1Alter(`DROP TABLE ${d1SchemaTable.value}`);
-  message.success(`表 ${d1SchemaTable.value} 已删除`);
+  message.success(t('storage.msg.tableDeleted', { name: d1SchemaTable.value }));
   showD1Schema.value = false;
   selectD1Database(selectedD1Db.value);
 }
@@ -650,9 +652,9 @@ const d1Creating = ref(false);
 const d1TypeOptions = ['INTEGER', 'TEXT', 'REAL', 'BLOB', 'BOOLEAN', 'DATETIME'].map(v => ({ label: v, value: v }));
 
 const d1CreateTableSql = computed(() => {
-  if (!d1NewTableName.value) return '-- 请输入表名';
+  if (!d1NewTableName.value) return t('storage.enterTableName');
   const cols = d1NewTableCols.value.filter(c => c.name.trim());
-  if (!cols.length) return '-- 请至少添加一列';
+  if (!cols.length) return t('storage.addAtLeastOneCol');
   const lines = cols.map(c => {
     let def = `  ${c.name} ${c.type}`;
     if (c.primaryKey) def += ' PRIMARY KEY AUTOINCREMENT';
@@ -667,23 +669,23 @@ function removeD1Col(idx: number) {
   d1NewTableCols.value.splice(idx, 1);
 }
 
-const d1ColDefColumns: DataTableColumns<D1ColDef> = [
+const d1ColDefColumns = computed<DataTableColumns<D1ColDef>>(() => [
   {
-    title: '列名', key: 'name', width: 140,
+    title: t('storage.columnName'), key: 'name', width: 140,
     render: (row, idx) => h(NInput, {
-      size: 'small', value: row.name, placeholder: '列名',
+      size: 'small', value: row.name, placeholder: t('storage.columnNamePlaceholder'),
       onUpdateValue: (v: string) => { d1NewTableCols.value[idx].name = v; },
     }),
   },
   {
-    title: '类型', key: 'type', width: 130,
+    title: t('storage.columnType'), key: 'type', width: 130,
     render: (row, idx) => h(NSelect, {
       size: 'small', value: row.type, options: d1TypeOptions,
       onUpdateValue: (v: string) => { d1NewTableCols.value[idx].type = v; },
     }),
   },
   {
-    title: '主键', key: 'primaryKey', width: 60,
+    title: t('storage.primaryKey'), key: 'primaryKey', width: 60,
     render: (row, idx) => h(NCheckbox, {
       checked: row.primaryKey,
       onUpdateChecked: (v: boolean) => { d1NewTableCols.value[idx].primaryKey = v; },
@@ -697,9 +699,9 @@ const d1ColDefColumns: DataTableColumns<D1ColDef> = [
     }),
   },
   {
-    title: '默认值', key: 'defaultVal', width: 120,
+    title: t('storage.defaultValue'), key: 'defaultVal', width: 120,
     render: (row, idx) => h(NInput, {
-      size: 'small', value: row.defaultVal, placeholder: '可选',
+      size: 'small', value: row.defaultVal, placeholder: t('storage.optional'),
       onUpdateValue: (v: string) => { d1NewTableCols.value[idx].defaultVal = v; },
     }),
   },
@@ -710,7 +712,7 @@ const d1ColDefColumns: DataTableColumns<D1ColDef> = [
       onClick: () => removeD1Col(idx),
     }, { default: () => '×' }),
   },
-];
+]);
 
 async function handleD1CreateTable() {
   if (!selectedAccount.value || !selectedD1Db.value) return;
@@ -722,7 +724,7 @@ async function handleD1CreateTable() {
       d1CreateTableSql.value,
       true,
     );
-    message.success(`表 ${d1NewTableName.value} 已创建`);
+    message.success(t('storage.msg.tableCreated', { name: d1NewTableName.value }));
     showD1CreateTable.value = false;
     d1NewTableName.value = '';
     d1NewTableCols.value = [
@@ -764,9 +766,9 @@ const r2DisplayItems = computed(() => {
 
 async function handleDeleteR2Bucket(b: any) {
   if (!selectedAccount.value) return;
-  if (!await confirmAction('删除存储桶', `确定删除存储桶 "${b.name}" 吗？桶必须为空才能删除！`)) return;
+  if (!await confirmAction(t('storage.msg.deleteBucketTitle'), t('storage.msg.deleteBucketConfirm', { name: b.name }))) return;
   await storageApi.deleteR2Bucket(selectedAccount.value, b.name);
-  message.success('存储桶已删除');
+  message.success(t('storage.msg.bucketDeleted'));
   if (selectedR2Bucket.value?.name === b.name) {
     selectedR2Bucket.value = null;
     r2Objects.value = [];
@@ -777,9 +779,9 @@ async function handleDeleteR2Bucket(b: any) {
 
 function handleCreateR2Bucket() {
   if (!selectedAccount.value) return;
-  openCreateModal('新建 R2 存储桶', '输入存储桶名称（小写字母、数字、连字符）', async (name) => {
+  openCreateModal(t('storage.r2'), '', async (name) => {
     await storageApi.createR2Bucket(selectedAccount.value!, name);
-    message.success('存储桶已创建');
+    message.success(t('storage.msg.bucketCreated'));
     loadR2Buckets();
   });
 }
@@ -822,7 +824,7 @@ function navigateR2Folder(prefix: string) {
 async function handleDeleteR2(row: any) {
   if (!selectedAccount.value || !selectedR2Bucket.value) return;
   await storageApi.deleteR2Object(selectedAccount.value, selectedR2Bucket.value.name, row.key);
-  message.success('已删除');
+  message.success(t('storage.msg.deleted'));
   loadR2Objects();
 }
 
@@ -833,7 +835,7 @@ async function handleR2Upload() {
     const prefix = r2UploadPrefix.value || r2Prefix.value || '';
     const key = prefix + r2UploadFile.value.name;
     await storageApi.uploadR2Object(selectedAccount.value, selectedR2Bucket.value.name, key, r2UploadFile.value);
-    message.success('上传成功');
+    message.success(t('storage.msg.uploadSuccess'));
     showR2Upload.value = false;
     r2UploadFile.value = null;
     loadR2Objects();
@@ -870,7 +872,7 @@ async function handlePreviewR2(row: any) {
     const blob = new Blob([resp.data], { type: row.contentType || 'image/png' });
     r2PreviewUrl.value = URL.createObjectURL(blob);
   } catch {
-    message.error('加载图片失败');
+    message.error(t('storage.msg.imageLoadFailed'));
   } finally {
     r2PreviewLoading.value = false;
   }
@@ -890,9 +892,9 @@ async function handleDownloadR2(row: any) {
   } catch {}
 }
 
-const r2Columns: DataTableColumns<any> = [
+const r2Columns = computed<DataTableColumns<any>>(() => [
   {
-    title: '名称', key: 'name', width: 180, minWidth: 100, ellipsis: { tooltip: true },
+    title: t('common.name'), key: 'name', width: 180, minWidth: 100, ellipsis: { tooltip: true },
     render: (row: any) => {
       if (row.isFolder) {
         return h('a', { style: 'cursor:pointer;color:#2080f0', onClick: () => navigateR2Folder(row.key) }, `📁 ${row.name}`);
@@ -903,25 +905,25 @@ const r2Columns: DataTableColumns<any> = [
       return row.name;
     },
   },
-  { title: '类型', key: 'contentType', width: 120, ellipsis: { tooltip: true }, render: (row: any) => row.contentType || '-' },
-  { title: '大小', key: 'size', width: 100, render: (row: any) => row.isFolder ? '-' : formatSize(row.size) },
-  { title: '修改时间', key: 'lastModified', width: 180, render: (row: any) => row.lastModified ? formatCN(row.lastModified) : '-' },
+  { title: t('common.type'), key: 'contentType', width: 120, ellipsis: { tooltip: true }, render: (row: any) => row.contentType || '-' },
+  { title: t('storage.columnName'), key: 'size', width: 100, render: (row: any) => row.isFolder ? '-' : formatSize(row.size) },
+  { title: t('workers.table.modifiedTime'), key: 'lastModified', width: 180, render: (row: any) => row.lastModified ? formatCN(row.lastModified) : '-' },
   {
-    title: '操作', key: 'actions', width: 180,
+    title: t('common.actions'), key: 'actions', width: 180,
     render: (row: any) => {
       if (row.isFolder) return null;
       const btns: any[] = [];
       if (isImageType(row.contentType)) {
-        btns.push(h(NButton, { size: 'small', type: 'info', onClick: () => handlePreviewR2(row) }, { default: () => '预览' }));
+        btns.push(h(NButton, { size: 'small', type: 'info', onClick: () => handlePreviewR2(row) }, { default: () => t('storage.preview') }));
       }
-      btns.push(h(NButton, { size: 'small', onClick: () => handleDownloadR2(row) }, { default: () => '下载' }));
+      btns.push(h(NButton, { size: 'small', onClick: () => handleDownloadR2(row) }, { default: () => t('storage.download') }));
       if (!isDemoSelected.value) {
-        btns.push(h(NButton, { size: 'small', type: 'error', onClick: () => handleDeleteR2(row) }, { default: () => '删除' }));
+        btns.push(h(NButton, { size: 'small', type: 'error', onClick: () => handleDeleteR2(row) }, { default: () => t('common.delete') }));
       }
       return h(NSpace, { size: 'small' }, { default: () => btns });
     },
   },
-];
+]);
 
 // ============ Init ============
 watch(isDemoSelected, (demo) => { if (demo) d1AllowWrite.value = false; });
