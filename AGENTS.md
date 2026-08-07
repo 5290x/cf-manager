@@ -178,7 +178,7 @@ chmod +x deploy.sh && ./deploy.sh
 |---|---|---|
 | 账户管理 CRUD | `src/routes/accounts.ts` | `src/routes/accounts.ts` |
 | DNS 记录管理 | `src/routes/dns.ts` | `src/routes/dns.ts` |
-| Workers/Pages 部署 | `src/routes/workers.ts` | `src/routes/workers.ts` |
+| Workers/Pages 部署（batch-deploy 统一单/批量 + config 重部署预填） | `src/routes/workers.ts` | `src/routes/workers.ts` |
 | KV/D1/R2 存储 | `src/routes/storage.ts` | `src/routes/storage.ts` |
 | AI 推理（内部） | `src/routes/ai.ts` | `src/routes/ai.ts` |
 | OpenAI 兼容 API | `src/routes/openai.ts` | `src/routes/openai.ts` |

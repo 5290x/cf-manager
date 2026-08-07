@@ -3,8 +3,7 @@
     <n-space justify="space-between" align="center" :wrap="true" style="margin-bottom: 16px">
       <n-h2 style="margin: 0">{{ t('workers.title') }}</n-h2>
       <n-space :size="8">
-        <n-button size="small" @click="openBatchDeploy" :disabled="!allAccounts.length">{{ t('workers.batchDeploy') }}</n-button>
-        <n-button size="small" type="primary" @click="openDeploy()" :disabled="!allAccounts.length">{{ t('workers.deploy') }}</n-button>
+        <n-button size="small" type="primary" @click="openDeploy(null)" :disabled="!allAccounts.length">{{ t('workers.deploy') }}</n-button>
       </n-space>
     </n-space>
 
@@ -93,60 +92,6 @@
       </n-space>
     </div>
 
-    <!-- 部署 Modal -->
-    <n-modal v-model:show="showDeployModal" preset="dialog" :title="t('workers.deployModalTitle')" style="width: 500px; max-width: 95vw">
-      <n-form :model="deployForm" label-placement="left" label-width="100">
-        <n-form-item :label="t('workers.deployType')">
-          <n-radio-group v-model:value="deployType">
-            <n-radio value="worker">Worker</n-radio>
-            <n-radio value="pages">Pages</n-radio>
-          </n-radio-group>
-        </n-form-item>
-        <n-form-item :label="t('workers.account')">
-          <n-select v-model:value="deployForm.accountId" :options="accountOptions" :disabled="isRedeploy" />
-        </n-form-item>
-        <n-form-item :label="t('workers.deployName')">
-          <n-input v-model:value="deployForm.name" :placeholder="deployType === 'pages' ? t('workers.pagesNamePlaceholder') : t('workers.workerNamePlaceholder')" :disabled="isRedeploy" />
-        </n-form-item>
-        <template v-if="deployType === 'worker'">
-          <n-form-item :label="t('workers.deployMethod')">
-            <n-radio-group v-model:value="deploySource">
-              <n-radio value="file">{{ t('workers.localFile') }}</n-radio>
-              <n-radio value="url">{{ t('workers.urlAddress') }}</n-radio>
-            </n-radio-group>
-          </n-form-item>
-          <n-form-item v-if="deploySource === 'file'" :label="t('workers.scriptFile')">
-            <n-upload :max="1" :default-upload="false" @change="handleFileChange" accept=".js,.zip">
-              <n-button>{{ t('workers.selectJsZip') }}</n-button>
-            </n-upload>
-          </n-form-item>
-          <n-form-item v-if="deploySource === 'file'" :label="t('workers.entryModule')">
-            <n-input v-model:value="deployMainModule" :placeholder="t('workers.entryModulePlaceholder')" :disabled="!selectedFile || !selectedFile.name.toLowerCase().endsWith('.zip')" />
-          </n-form-item>
-          <n-form-item v-if="deploySource === 'file'" :label="t('workers.staticAssets')">
-            <n-upload :max="1" :default-upload="false" @change="handleAssetsChange" accept=".zip">
-              <n-button>{{ t('workers.selectZipOptional') }}</n-button>
-            </n-upload>
-            <span v-if="selectedAssetsFile" style="margin-left: 8px; font-size: 12px; color: var(--app-text-disabled)">{{ selectedAssetsFile.name }}</span>
-          </n-form-item>
-          <n-form-item v-else :label="t('workers.jsUrl')">
-            <n-input v-model:value="deployUrl" placeholder="https://example.com/worker.js" />
-          </n-form-item>
-        </template>
-        <n-form-item v-else :label="t('workers.staticFile')">
-          <n-upload :max="1" :default-upload="false" @change="handleZipChange" accept=".zip">
-            <n-button>{{ t('workers.selectZipFile') }}</n-button>
-          </n-upload>
-          <span v-if="selectedZipFile" style="margin-left: 8px; font-size: 12px; color: var(--app-text-disabled)">{{ selectedZipFile.name }}</span>
-          <n-text v-else-if="!isRedeploy" depth="3" style="margin-left: 8px; font-size: 12px">{{ t('workers.emptyProjectHint') }}</n-text>
-        </n-form-item>
-      </n-form>
-      <template #action>
-        <n-button @click="showDeployModal = false">{{ t('common.cancel') }}</n-button>
-        <n-button type="primary" :loading="deploying" @click="handleDeploy">{{ t('workers.deploy') }}</n-button>
-      </template>
-    </n-modal>
-
     <!-- 日志 Drawer -->
     <n-drawer v-model:show="showLogDrawer" :width="drawerWidth(520)" placement="right">
       <n-drawer-content :title="t('workers.logDrawerTitle', { name: currentWorkerName })" closable>
@@ -168,64 +113,21 @@
       :worker="settingsWorker"
     />
 
-    <!-- 批量部署 Modal -->
-    <n-modal v-model:show="showBatchDeployModal" preset="dialog" :title="t('workers.batchDeployModalTitle')" style="width: 650px; max-width: 95vw">
-      <n-form label-placement="left" label-width="100">
-        <n-form-item :label="t('workers.deployType')">
-          <n-radio-group v-model:value="batchType" @update:value="batchTargets = []">
-            <n-radio value="worker">Worker</n-radio>
-            <n-radio value="pages">Pages</n-radio>
-          </n-radio-group>
-        </n-form-item>
-        <n-form-item :label="t('workers.targetAccounts')">
-          <n-select v-model:value="batchTargets" :options="batchAccountOptions" multiple :placeholder="t('workers.selectTargetAccounts')" />
-        </n-form-item>
-        <n-form-item :label="batchType === 'worker' ? t('workers.workerNameLabel') : t('workers.pagesNameLabel')">
-          <n-input v-model:value="batchName" :placeholder="batchType === 'worker' ? t('workers.batchWorkerHint') : t('workers.batchPagesHint')" />
-        </n-form-item>
-        <template v-if="batchType === 'worker'">
-          <n-form-item :label="t('workers.scriptSource')">
-            <n-radio-group v-model:value="batchSource">
-              <n-radio value="file">{{ t('workers.fileUpload') }}</n-radio>
-              <n-radio value="url">{{ t('workers.url') }}</n-radio>
-            </n-radio-group>
-          </n-form-item>
-          <n-form-item v-if="batchSource === 'file'" :label="t('workers.scriptFile')">
-            <n-upload :max="1" @change="({ file }: any) => batchFile = file.file || null" accept=".js,.zip"><n-button size="small">{{ t('workers.selectJsZip') }}</n-button></n-upload>
-          </n-form-item>
-          <n-form-item v-if="batchSource === 'file'" :label="t('workers.entryModule')">
-            <n-input v-model:value="batchMainModule" :placeholder="t('workers.entryModulePlaceholder')" :disabled="!batchFile || !batchFile.name.toLowerCase().endsWith('.zip')" />
-          </n-form-item>
-          <n-form-item v-if="batchSource === 'file'" :label="t('workers.staticAssets')">
-            <n-upload :max="1" :default-upload="false" @change="({ file }: any) => batchAssetsFile = file.file || null" accept=".zip"><n-button size="small">{{ t('workers.selectZipOptional') }}</n-button></n-upload>
-          </n-form-item>
-          <n-form-item v-else :label="t('workers.scriptUrl')">
-            <n-input v-model:value="batchUrl" placeholder="https://example.com/worker.js" />
-          </n-form-item>
-        </template>
-        <template v-else>
-          <n-form-item :label="t('workers.staticFile')">
-            <n-upload :max="1" @change="({ file }: any) => batchFile = file.file || null" accept=".zip"><n-button size="small">{{ t('workers.selectZipFile') }}</n-button></n-upload>
-          </n-form-item>
-        </template>
-      </n-form>
-      <div v-if="batchResults.length" style="margin-top: 12px">
-        <n-tag v-for="r in batchResults" :key="`${r.accountId}-${r.workerName}`" :type="r.success ? 'success' : 'error'" size="small" style="margin: 2px">
-          {{ r.success ? t('workers.batchResultSuccess', { name: r.workerName }) : `${r.workerName}: ${r.error}` }}
-        </n-tag>
-      </div>
-      <template #action>
-        <n-button @click="showBatchDeployModal = false">{{ t('common.close') }}</n-button>
-        <n-button type="primary" :loading="batchDeploying" @click="handleBatchDeploy" :disabled="!batchTargets.length || !batchName.trim()">{{ t('workers.deploy') }}</n-button>
-      </template>
-    </n-modal>
+    <!-- 统一部署对话框（单/批量共用；redeploy 预填） -->
+    <DeployDialog
+      :show="showDeployDialog"
+      :redeploy="redeployTarget"
+      :all-accounts="allAccounts"
+      @update:show="showDeployDialog = $event"
+      @deployed="onDeployed"
+    />
 
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, h, computed, onMounted } from 'vue';
-import { NButton, NSpace, NTag, useMessage, NRadio, NRadioGroup, NPopconfirm } from 'naive-ui';
+import { NButton, NSpace, NTag, useMessage, NPopconfirm } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
 import { useWorkerStore } from '../stores/workerStore';
@@ -236,6 +138,7 @@ import { formatCN } from '../utils/dateFormat';
 import { loadDemoAccounts, isDemoAccount } from '../utils/demoAccounts';
 import WorkerSettingsDrawer from '../components/WorkerSettingsDrawer.vue';
 import WorkerPagesSettingsDrawer from '../components/WorkerPagesSettingsDrawer.vue';
+import DeployDialog from '../components/DeployDialog.vue';
 
 const { t } = useI18n();
 const workerStore = useWorkerStore();
@@ -279,21 +182,13 @@ function formatCpuTime(ms: number): string {
   return ms.toLocaleString() + 'ms';
 }
 
-// Deploy state
-const showDeployModal = ref(false);
-const deployType = ref<'worker' | 'pages'>('worker');
-const deploying = ref(false);
+// 统一部署对话框状态（单/批量共用）
+const showDeployDialog = ref(false);
+const redeployTarget = ref<{ type: 'worker' | 'pages'; name: string; accountId: number } | null>(null);
 const showLogDrawer = ref(false);
 const logContent = ref('');
 const logLoading = ref(false);
 const currentWorkerName = ref('');
-const selectedFile = ref<File | null>(null);
-const selectedZipFile = ref<File | null>(null);
-const selectedAssetsFile = ref<File | null>(null);
-const deployForm = ref({ accountId: null as number | null, name: '' });
-const deploySource = ref<'file' | 'url'>('file');
-const deployUrl = ref('');
-const deployMainModule = ref('');
 
 // 设置抽屉（具体逻辑拆分到 WorkerSettingsDrawer / WorkerPagesSettingsDrawer 子组件）
 const settingsWorker = ref<any>(null);
@@ -302,12 +197,6 @@ function openSettings(row: any) {
   settingsWorker.value = row;
   showSettingsDrawer.value = true;
 }
-
-const accountOptions = computed(() =>
-  allAccounts.value
-    .filter((a: any) => a.is_active && (a.enabled_features || 'ai,workers,browser_render,dns,storage').includes('workers'))
-    .map((a: any) => ({ label: a.name, value: a.id }))
-);
 
 // 部署对话框需要全部账户（不分页），accountStore.accounts 仅含当前页
 const allAccounts = ref<any[]>([]);
@@ -319,55 +208,19 @@ async function loadAllAccounts() {
 }
 
 // ============ Deploy ============
-const isRedeploy = ref(false);
-function openDeploy(type?: 'worker' | 'pages', prefillName?: string, prefillAccountId?: number) {
-  deployType.value = type || 'worker';
-  selectedFile.value = null;
-  selectedZipFile.value = null;
-  selectedAssetsFile.value = null;
-  deploySource.value = 'file';
-  deployUrl.value = '';
-  deployMainModule.value = '';
-  isRedeploy.value = !!prefillName;
-  deployForm.value = {
-    accountId: prefillAccountId || accountOptions.value[0]?.value || null,
-    name: prefillName || '',
-  };
-  showDeployModal.value = true;
+function openDeploy(row: any | null) {
+  redeployTarget.value = row ? { type: row.type, name: row.name, accountId: row.cfAccountId } : null;
+  showDeployDialog.value = true;
 }
-
-function handleFileChange({ file }: any) { selectedFile.value = file.file || null; }
-function handleZipChange({ file }: any) { selectedZipFile.value = file.file || null; }
-function handleAssetsChange({ file }: any) { selectedAssetsFile.value = file.file || null; }
-async function handleDeploy() {
-  if (!deployForm.value.accountId || !deployForm.value.name) { message.warning(t('workers.msg.infoRequired')); return; }
-  if (deployType.value === 'worker' && deploySource.value === 'file' && !selectedFile.value) { message.warning(t('workers.msg.scriptFileRequired')); return; }
-  if (deployType.value === 'worker' && deploySource.value === 'url' && !deployUrl.value) { message.warning(t('workers.msg.jsUrlRequired')); return; }
-  if (deployType.value === 'pages' && isRedeploy.value && !selectedZipFile.value) { message.warning(t('workers.redeployZipRequired')); return; }
-  deploying.value = true;
-  try {
-    if (deployType.value === 'worker') {
-      if (deploySource.value === 'url') {
-        await workersApi.deployFromUrl(deployForm.value.accountId, deployForm.value.name, deployUrl.value);
-      } else {
-        await workersApi.deploy(deployForm.value.accountId, deployForm.value.name, selectedFile.value!, selectedAssetsFile.value || undefined, deployMainModule.value || undefined);
-      }
-      message.success(t('workers.msg.workerDeploySuccess'));
-    } else {
-      const files = selectedZipFile.value ? [selectedZipFile.value] : [];
-      await workersApi.deployPages(deployForm.value.accountId, deployForm.value.name, files, isRedeploy.value);
-      message.success(selectedZipFile.value ? t('workers.msg.pagesDeploySuccess') : t('workers.msg.pagesCreateSuccess'));
-    }
-    showDeployModal.value = false;
-    // 部署后只刷新当前选中账户，不加载全部
-    if (workerStore.selectedAccountId) {
-      workerStore.fetchWorkers(workerStore.selectedAccountId);
-    } else {
-      workerStore.fetchWorkers();
-    }
-    // 刷新摘要（用量+数量）
-    workerStore.fetchSummary();
-  } finally { deploying.value = false; }
+function onDeployed() {
+  // 部署后只刷新当前选中账户，不加载全部
+  if (workerStore.selectedAccountId) {
+    workerStore.fetchWorkers(workerStore.selectedAccountId);
+  } else {
+    workerStore.fetchWorkers();
+  }
+  // 刷新摘要（用量+数量）
+  workerStore.fetchSummary();
 }
 
 // ============ Logs ============
@@ -423,7 +276,7 @@ const columns = computed<DataTableColumns<any>>(() => {
     title: t('workers.table.actions'), key: 'actions', width: 280,
     render: (row) => h(NSpace, null, {
       default: () => [
-        h(NButton, { size: 'small', type: 'success', onClick: () => openDeploy(row.type, row.name, row.cfAccountId) }, { default: () => t('workers.table.deployBtn') }),
+        h(NButton, { size: 'small', type: 'success', onClick: () => openDeploy(row) }, { default: () => t('workers.table.deployBtn') }),
         h(NButton, { size: 'small', onClick: () => openSettings(row) }, { default: () => t('workers.table.settingsBtn') }),
         ...(row.type === 'worker' ? [
           h(NButton, { size: 'small', onClick: () => handleViewLogs(row) }, { default: () => t('workers.table.logsBtn') }),
@@ -444,66 +297,6 @@ const columns = computed<DataTableColumns<any>>(() => {
   });
   return cols;
 });
-
-// ============ Batch Deploy ============
-const showBatchDeployModal = ref(false);
-const batchType = ref<'worker' | 'pages'>('worker');
-const batchTargets = ref<number[]>([]);
-const batchName = ref('');
-const batchSource = ref<'file' | 'url'>('file');
-const batchFile = ref<File | null>(null);
-const batchAssetsFile = ref<File | null>(null);
-const batchUrl = ref('');
-const batchMainModule = ref('');
-const batchDeploying = ref(false);
-const batchResults = ref<any[]>([]);
-
-// 批量部署可选账户（所有启用 workers 功能的活跃账户）
-const batchAccountOptions = computed(() =>
-  allAccounts.value
-    .filter((a: any) => a.is_active && (a.enabled_features || 'ai,workers,browser_render,dns,storage').includes('workers'))
-    .map((a: any) => ({ label: `${a.name} (${a.email || a.id})`, value: a.id }))
-);
-
-function openBatchDeploy() {
-  batchType.value = 'worker';
-  batchTargets.value = [];
-  batchName.value = '';
-  batchFile.value = null;
-  batchAssetsFile.value = null;
-  batchUrl.value = '';
-  batchMainModule.value = '';
-  batchResults.value = [];
-  showBatchDeployModal.value = true;
-}
-
-async function handleBatchDeploy() {
-  if (!batchName.value.trim()) { message.warning(t('workers.msg.deployNameRequired')); return; }
-  const targets = batchTargets.value.map(accountId => ({
-    accountId,
-    workerName: batchName.value.trim(),
-  }));
-  batchDeploying.value = true;
-  try {
-    if (batchType.value === 'worker') {
-      const { data } = await workersApi.batchDeploy(targets, batchFile.value || undefined, batchSource.value === 'url' ? batchUrl.value : undefined, batchAssetsFile.value || undefined, batchMainModule.value || undefined);
-      batchResults.value = Array.isArray(data) ? data : [];
-    } else {
-      if (!batchFile.value) { message.warning(t('workers.msg.zipFileRequired')); return; }
-      const { data } = await workersApi.batchDeployPages(targets, batchFile.value);
-      batchResults.value = Array.isArray(data) ? data : [];
-    }
-    const successCount = batchResults.value.filter((r: any) => r.success).length;
-    message.success(t('workers.msg.batchDeployComplete', { success: successCount, total: targets.length }));
-    // 批量部署后刷新当前账户 + 摘要
-    if (workerStore.selectedAccountId) {
-      workerStore.fetchWorkers(workerStore.selectedAccountId);
-    } else {
-      workerStore.fetchWorkers();
-    }
-    workerStore.fetchSummary();
-  } finally { batchDeploying.value = false; }
-}
 
 onMounted(async () => {
   await loadDemoAccounts();
