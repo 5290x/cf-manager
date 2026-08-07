@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.7.0] - 2026-08-07
+
+### 🚀 新特性
+
+- **AI 图片生成（文生图/图生图）**：新增 AI 图片生成功能，支持 Cloudflare Workers AI 的 Text-to-Image 和 Image-to-Image 模型（Flux-1-Schnell、Stable Diffusion XL 等）。
+  - 新增 `POST /v1/images/generations` 和 `POST /api/v1/images/generations` 端点（OpenAI 兼容格式），支持账户轮换、神经元消耗追踪、审计日志。
+  - 前端新增「AI 绘图」页面，支持文生图/图生图模式切换、参考图上传、高级参数（宽高/步数/引导强度/反向提示词）、图片预览/下载/复用、历史记录画廊。
+  - 新增图片生成模型定价（`perImage` 字段）和 `estimateImageNeurons` 估算函数。
+  - 双后端（Express + Hono）对称实现。
+- **AI 语音合成（TTS）**：新增文字转语音功能，支持 Cloudflare Workers AI 的 Deepgram Aura 系列模型。
+  - 新增 `POST /v1/audio/speech` 和 `POST /api/v1/audio/speech` 端点（OpenAI 兼容格式），支持账户轮换、神经元消耗追踪。
+  - 前端新增 AI 语音页面，支持模型/语音选择、文本输入、音频播放/下载/复用/删除。
+  - 新增 TTS 模型定价（`perKChar` 字段）和 `estimateTtsNeurons` 估算函数。
+  - 双后端（Express + Hono）对称实现，统一返回 JSON base64 音频格式。
+- **AI 翻译（Translation）**：新增文本翻译功能，支持 Cloudflare Workers AI 的 M2M100 系列模型。
+  - 新增 `POST /v1/translations` 和 `POST /api/v1/translations` 端点（OpenAI 格式扩展），支持账户轮换、神经元消耗追踪、审计日志。
+  - 前端新增 AI 翻译页面，支持模型选择、源语言/目标语言选择、文本输入、翻译结果显示、复制、神经元消耗显示。
+  - 新增翻译模型定价和 `estimateTranslationNeurons` 估算函数。
+  - 双后端（Express + Hono）对称实现。
+- **AI 功能整合**：将 AI 对话、绘图、语音、翻译、统计合并为统一菜单，顶部 Tab 切换。
+  - 新增 `AiUnifiedView.vue` 统一视图，包含统计、对话、绘图、语音、翻译五个 Tab。
+  - AI 统计作为首个 Tab，展示账户维度的用量汇总。
+  - 路由 `/ai` 指向统一视图，移除独立的 `/ai-image` 和 `/ai-audio` 路由。
+  - 导航菜单精简，AI 相关功能整合为单入口。
+
+### 🐛 Bug 修复
+
+- **AI 图片生成修复**：修复 `responseWrapper` 错误包装 `/api/v1/images/generations` 响应导致前端解析失败（图片不显示）。
+- **CF API 错误信息提取**：修复 CF API 错误信息未正确提取，前端显示原始 JSON 而非可读错误消息。
+- **Flux 2 multipart 修复**：修复 Flux 2 模型（如 `flux-2-klein-9b`）需要 `multipart/form-data` 格式请求，之前统一用 JSON 导致 `required properties are 'multipart'` 错误。
+
+### 🔧 优化
+
+- **模型能力检测**：基于 CF 官方文档精确识别模型支持的生成模式——Flux 2 支持 image editing（图生图），Flux 1 仅文生图，SDXL 支持图生图。模式切换按钮仅在模型同时支持两种模式时显示。
+- **图生图默认强度**：默认 `strength` 从 1.0 调整为 0.6，保留更多原图特征。
+- **生成中 UX 改进**：生成图片时不再全屏遮罩，改为顶部加载条，用户可同时查看已有图片。
+- **复用功能改进**：点击"复用"时自动切换到图生图模式并使用生成的图片作为参考图（需模型支持）。
+- **用量显示**：每张生成的图片返回并显示神经元消耗（⚡ neurons 徽章）。
+- **组件重命名**：`AiView.vue` 重命名为 `AiChatView.vue`，更清晰地表达其职责。
+
 ## [1.6.0] - 2026-08-06
 
 ### 🚀 新特性

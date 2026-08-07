@@ -4,57 +4,6 @@
     <div ref="chatContainer" style="flex: 1; overflow-y: auto; padding: 20px;">
       <!-- 欢迎页 -->
       <div v-if="messages.length === 0" style="text-align: center; padding: 40px 20px 40px;">
-        <!-- AI 用量统计 (compact) -->
-        <div class="card-grid-scroll" style="width: 100%">
-        <n-grid v-if="usageData.length > 0" :x-gap="8" :y-gap="8" cols="1 s:2 m:4 l:6 xl:8" responsive="screen" style="width: 100%; margin-bottom: 20px; text-align: left;">
-          <n-gi v-for="u in usageData" :key="u.accountId">
-            <n-popover trigger="click" placement="bottom" style="display: block; width: 100%;">
-              <template #trigger>
-                <div class="ai-compact-card">
-                  <span class="ai-compact-card__name" :title="u.accountName">{{ u.accountName }}</span>
-                  <n-progress
-                    type="line"
-                    :percentage="Math.min(u.totalNeurons / 100, 100)"
-                    :color="u.totalNeurons > 8000 ? '#e03050' : '#2080f0'"
-                    :rail-color="'#e8e8e8'"
-                    :height="6"
-                    :show-indicator="false"
-                    :style="{ flex: '1 1 0', minWidth: '24px', overflow: 'hidden' }"
-                  />
-                  <span class="ai-compact-card__metric">{{ u.totalNeurons.toLocaleString() }}</span>
-                </div>
-              </template>
-              <div style="min-width: 260px; padding: 4px 0;">
-                <div style="font-weight: bold; margin-bottom: 10px;">{{ u.accountName }}</div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;">
-                  <span>{{ t('ai.totalNeurons') }}</span>
-                  <span><b style="color: #2080f0;">{{ u.totalNeurons.toLocaleString() }}</b> / 10,000</span>
-                </div>
-                <n-progress
-                  type="line"
-                  :percentage="Math.min(u.totalNeurons / 100, 100)"
-                  :color="u.totalNeurons > 8000 ? '#e03050' : '#2080f0'"
-                  :rail-color="'#e8e8e8'"
-                  :height="12"
-                  :show-indicator="false"
-                  style="margin-bottom: 10px;"
-                />
-                <div v-if="u.models.length > 0" style="border-top: 1px solid var(--app-border-light); padding-top: 8px;">
-                  <div style="font-size: 12px; color: var(--app-text-muted); margin-bottom: 6px;">{{ t('ai.modelDetail', { count: u.models.length }) }}</div>
-                  <div
-                    v-for="m in u.models"
-                    :key="m.modelId"
-                    style="display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; color: var(--app-text-secondary); border-bottom: 1px solid var(--app-border-light);"
-                  >
-                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.modelId.replace(/^@cf\//, '') }}</span>
-                    <span style="flex-shrink: 0; margin-left: 12px;">{{ m.neurons.toLocaleString() }} / {{ m.requests.toLocaleString() }} {{ t('ai.requests') }}</span>
-                  </div>
-                </div>
-              </div>
-            </n-popover>
-          </n-gi>
-        </n-grid>
-        </div>
         <h1 style="font-size: 32px; margin-bottom: 36px; color: var(--app-text-heading); font-weight: 600;">{{ t('ai.welcome') }}</h1>
         <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; max-width: 820px; margin: 0 auto;">
           <div
@@ -152,15 +101,6 @@ import { ref, reactive, watch, onMounted, nextTick, computed } from 'vue';
 import { useMessage } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
 import { accountsApi } from '../api/accounts';
-
-interface AiUsageItem {
-  accountId: string;
-  accountName: string;
-  totalNeurons: number;
-  models: Array<{ modelId: string; neurons: number; requests: number }>;
-  expanded?: boolean;
-}
-const usageData = ref<AiUsageItem[]>([]);
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -383,36 +323,9 @@ function scrollToBottom() {
   });
 }
 
-async function fetchUsage() {
-  try {
-    const token = localStorage.getItem('api_token');
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    
-    const response = await fetch('/api/ai/usage', { headers });
-    
-    if (!response.ok) throw new Error(`Failed to fetch usage: ${response.status}`);
-    
-    const result = await response.json();
-    
-    // Handle both wrapped { success, data } and unwrapped array formats
-    const data = result.data || result;
-    // Ensure totalNeurons always has a default value (0 if missing)
-    usageData.value = (data || []).map((d: any) => ({ 
-      ...d, 
-      totalNeurons: d.totalNeurons || 0,
-      expanded: false 
-    }));
-  } catch (error) {
-    console.error('[AiView] Failed to fetch usage:', error);
-    usageData.value = [];
-  }
-}
-
 onMounted(() => {
   fetchAccounts();
   fetchModels();
-  fetchUsage();
 });
 
 watch(selectedAccount, () => {

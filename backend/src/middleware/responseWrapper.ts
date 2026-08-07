@@ -8,10 +8,10 @@ export function responseWrapper(_req: Request, res: Response, next: NextFunction
   const originalJson = res.json.bind(res);
 
   res.json = function (body: any) {
-    // Skip wrapping for all OpenAI-compatible paths (/api/v1/*), keep original format.
-    // Note: middleware is mounted at app.use('/api', ...), so req.path is already stripped of /api.
-    // For /api/v1/chat/completions, req.path is /v1/chat/completions.
-    if (_req.path.startsWith('/v1')) {
+    // Skip wrapping for all OpenAI-compatible paths (/v1/*, /api/v1/*), keep original format.
+    // Use originalUrl to be safe across Express versions (path may or may not include mount prefix).
+    const fullUrl = _req.originalUrl || '';
+    if (fullUrl.startsWith('/v1') || fullUrl.startsWith('/api/v1')) {
       return originalJson(body);
     }
     // Skip wrapping for OpenAI format responses (returned by /api/v1/* routes)

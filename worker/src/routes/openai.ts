@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { setExhausted, incrementQuota, addAuditLog, getActiveAccountsByFeature } from '../db/models';
 import { getAuthHeaders, cfFetchRaw } from '../services/cfApi';
 import { selectBestAccount, invalidateAiCache, clearOptimistic } from '../services/quotaTracker';
-import { estimateNeurons } from '../services/pricing';
+import { estimateNeurons, estimateImageNeurons, estimateTtsNeurons, estimateTranslationNeurons } from '../services/pricing';
 import { getRequestId } from '../middleware/requestId';
 import { logger } from '../services/logger';
 
@@ -446,6 +446,564 @@ app.post('/chat/completions', async (c) => {
 
   // 无账户可用
   logger.error('openai', `[${rid}] All accounts exhausted. Last error: ${lastError}`);
+  return c.json({ error: { message: 'All accounts exhausted', type: 'quota_exceeded', code: 'ALL_ACCOUNTS_EXHAUSTED', last_error: lastError || 'Unknown error' } }, 429);
+});
+
+/** 64x64 全白遮罩 PNG（base64），用于 SDXL 图生图时 mask_image 参数（白色 = 允许变换整个图像） */
+const WHITE_MASK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAAAAACPAi4CAAAAKUlEQVR4nO3MQREAAAwCIPuX1hD77SAA6VEEAoFAIBAIBAKBQCAQfA8Gpwvw4pr3blgAAAAASUVORK5CYII=';
+
+app.post('/images/generations', async (c) => {
+  const specifiedAccountId = c.req.header('X-Account-ID');
+  const body = await c.req.json();
+  const { model, prompt, image } = body;
+  const rid = getRequestId(c);
+  const env = c.env;
+
+  if (!model || !prompt) {
+    return c.json({
+      error: { message: 'model and prompt are required', type: 'invalid_request_error', code: 'bad_request' },
+    }, 400);
+  }
+
+  // 根据模型族构建 CF 请求体（不同模型参数名不同）
+  // Flux 1: steps (非 num_steps)，不支持 width/height/guidance/negative_prompt
+  // Flux 2: 需要 multipart 表单格式，参数同 Flux 1
+  // SDXL: num_steps, image_b64 (非 image), 支持 width/height/guidance/negative_prompt/strength
+  const isFlux = model.includes('flux');
+  const isFlux2 = model.includes('flux-2');
+  const isSD = model.includes('stable-diffusion');
+  const cfBody: Record<string, any> = { prompt };
+
+  if (isFlux) {
+    if (body.num_steps) cfBody.steps = body.num_steps;
+  } else if (isSD) {
+    if (image) {
+      cfBody.image_b64 = image;
+      cfBody.mask_image = WHITE_MASK_PNG;
+    }
+    if (body.width) cfBody.width = body.width;
+    if (body.height) cfBody.height = body.height;
+    if (body.num_steps) cfBody.num_steps = body.num_steps;
+    if (body.guidance) cfBody.guidance = body.guidance;
+    if (body.negative_prompt) cfBody.negative_prompt = body.negative_prompt;
+    if (body.strength) cfBody.strength = body.strength;
+  } else {
+    if (image) cfBody.image = image;
+    if (body.width) cfBody.width = body.width;
+    if (body.height) cfBody.height = body.height;
+    if (body.num_steps) cfBody.num_steps = body.num_steps;
+    if (body.guidance) cfBody.guidance = body.guidance;
+    if (body.negative_prompt) cfBody.negative_prompt = body.negative_prompt;
+  }
+
+  /**
+   * 构建 CF 请求体和 Content-Type
+   * Flux 2 模型需要 multipart 表单格式，其他模型用 JSON
+   */
+  const buildRequest = (): { body: string | FormData; contentType?: string } => {
+    if (isFlux2) {
+      // Flux 2 模型需要 multipart/form-data，Workers fetch 原生支持 FormData
+      const formData = new FormData();
+      formData.append('prompt', prompt);
+      if (cfBody.steps) formData.append('steps', String(cfBody.steps));
+      return { body: formData };
+    }
+    return { body: JSON.stringify(cfBody), contentType: 'application/json' };
+  };
+
+  /** 从 CF 错误响应中提取可读的错误消息 */
+  const extractCfError = (raw: string): string => {
+    try {
+      const json = JSON.parse(raw);
+      if (json.errors?.[0]?.message) return json.errors[0].message;
+      if (json.error?.message) return json.error.message;
+      if (json.message) return json.message;
+    } catch {}
+    return raw;
+  };
+
+  /** 处理 CF 图片生成成功响应 */
+  async function handleSuccess(account: any, cfResp: Response): Promise<Response> {
+    const contentType = cfResp.headers.get('content-type') || '';
+    let b64Image = '';
+
+    logger.debug('openai', `[AI Image][${rid}] CF response content-type: ${contentType}, status: ${cfResp.status}`);
+
+    if (contentType.includes('application/json')) {
+      const json = await cfResp.json() as any;
+      logger.debug('openai', `[AI Image][${rid}] CF JSON response keys: ${JSON.stringify(Object.keys(json))}`);
+      if (!json.success) {
+        throw new Error(json.errors?.[0]?.message || 'CF image generation failed');
+      }
+      // 兼容多种 JSON 响应格式
+      b64Image = json.result?.image || json.image || json.result?.images?.[0] || '';
+    } else if (contentType.startsWith('image/') || contentType.includes('octet-stream')) {
+      // 二进制图片响应 — 分块转 base64
+      const buf = await cfResp.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      b64Image = btoa(binary);
+    } else {
+      // 未知 content-type — 尝试作为文本/base64 读取
+      const text = await cfResp.text();
+      if (text.length > 100 && /^[A-Za-z0-9+/=\s]+$/.test(text.trim())) {
+        b64Image = text.trim();
+      } else {
+        try {
+          const json = JSON.parse(text);
+          b64Image = json.result?.image || json.image || json.result?.images?.[0] || '';
+        } catch {
+          // 最后尝试作为二进制
+          b64Image = btoa(text);
+        }
+      }
+    }
+
+    if (!b64Image) {
+      logger.error('openai', `[AI Image][${rid}] CF returned empty image. content-type: ${contentType}`);
+      throw new Error('CF returned empty image');
+    }
+
+    const neurons = estimateImageNeurons(model);
+    await incrementQuota(env.DB, account.id, 'ai_neurons', neurons);
+    await clearOptimistic(env, account.id);
+    await invalidateAiCache(env);
+    logger.debug('openai', `[AI Image][${rid}] estimated ${neurons} neurons for account ${account.name}`);
+    try {
+      await addAuditLog(env.DB, {
+        account_id: account.id, action: 'ai_image_generation', target: model,
+        detail: `[${rid}] ${image ? 'image-to-image' : 'text-to-image'} neurons=${neurons}`,
+        status: 'success',
+      });
+    } catch {}
+
+    return c.json({
+      created: Math.floor(Date.now() / 1000),
+      data: [{ b64_json: b64Image, neurons }],
+    });
+  }
+
+  // --- X-Account-ID 指定账户 ---
+  if (specifiedAccountId && specifiedAccountId !== 'auto') {
+    const allAccounts = await getActiveAccountsByFeature(env.DB, 'ai');
+    const specified = allAccounts.find(a => a.account_id === specifiedAccountId);
+    if (!specified) {
+      return c.json({
+        error: { message: `Account ${specifiedAccountId} not found or inactive`, type: 'invalid_request_error', code: 'ACCOUNT_NOT_FOUND' },
+      }, 404);
+    }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${specified.account_id}/ai/run/${model}`;
+    const authHeaders = await getAuthHeaders(specified, env.ENCRYPTION_KEY);
+    const { body: reqBody, contentType: reqCt } = buildRequest();
+    let cfResp: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
+      cfResp = await fetch(cfUrl, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', ...(reqCt ? { 'Content-Type': reqCt } : {}), ...authHeaders },
+        body: reqBody,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      const errMsg = `Network error: ${netErr.message}`;
+      logger.error('openai', `[AI Image][${rid}] ${errMsg}`);
+      try { await addAuditLog(env.DB, { account_id: specified.id, action: 'ai_image_generation', target: model, detail: `[${rid}] ${errMsg}`, status: 'error' }); } catch {}
+      return c.json({ error: { message: errMsg, type: 'upstream_error', code: 'NETWORK_ERROR' } }, 502);
+    }
+
+    if (!cfResp.ok) {
+      const errorText = await cfResp.text();
+      logger.error('openai', `[AI Image][${rid}] CF upstream error ${cfResp.status} for account ${specified.name}: ${errorText.slice(0, 1000)}`);
+      if (isNeuronLimitError(errorText)) {
+        await setExhausted(env.DB, specified.id, 'ai_neurons');
+        await invalidateAiCache(env);
+      }
+      return c.json({ error: { message: extractCfError(errorText), type: 'upstream_error', code: upstreamStatusToCode(cfResp.status) } }, cfResp.status as any);
+    }
+
+    return await handleSuccess(specified, cfResp);
+  }
+
+  // --- 自动轮换账户 ---
+  const skipped = new Set<number>();
+  let lastError = '';
+
+  while (true) {
+    const account = await selectBestAccount(env, 'ai_neurons', skipped, model);
+    if (!account) break;
+    if (!account.account_id) { skipped.add(account.id); continue; }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${account.account_id}/ai/run/${model}`;
+    const authHeaders = await getAuthHeaders(account, env.ENCRYPTION_KEY);
+    const { body: reqBody, contentType: reqCt } = buildRequest();
+    let cfResp: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
+      cfResp = await fetch(cfUrl, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', ...(reqCt ? { 'Content-Type': reqCt } : {}), ...authHeaders },
+        body: reqBody,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      const errMsg = `Network error: ${netErr.message || netErr}`;
+      logger.warn('openai', `[AI Image][${rid}] Account ${account.name} ${errMsg}`);
+      lastError = errMsg;
+      try { await addAuditLog(env.DB, { account_id: account.id, action: 'ai_image_generation', target: model, detail: `[${rid}] ${errMsg}`, status: 'error' }); } catch {}
+      skipped.add(account.id);
+      continue;
+    }
+
+    if (!cfResp.ok) {
+      const errorText = await cfResp.text();
+      logger.warn('openai', `[AI Image][${rid}] CF upstream error ${cfResp.status} for account ${account.name}: ${errorText.slice(0, 1000)}`);
+      lastError = errorText;
+
+      if (isRetryableError(cfResp.status, errorText)) {
+        if (isNeuronLimitError(errorText)) {
+          logger.warn('openai', `[AI Image][${rid}] Account ${account.name} neuron limit hit (4006), rotating`);
+          await setExhausted(env.DB, account.id, 'ai_neurons');
+          await invalidateAiCache(env);
+          skipped.add(account.id);
+          try { await addAuditLog(env.DB, { account_id: account.id, action: 'ai_image_generation', target: model, detail: `[${rid}] 4006 switching`, status: 'error' }); } catch {}
+        } else {
+          logger.warn('openai', `[AI Image][${rid}] Account ${account.name} upstream ${cfResp.status}, rotating`);
+          skipped.add(account.id);
+          try { await addAuditLog(env.DB, { account_id: account.id, action: 'ai_image_generation', target: model, detail: `[${rid}] upstream ${cfResp.status}, switching`, status: 'error' }); } catch {}
+        }
+        continue;
+      }
+
+      return c.json({ error: { message: extractCfError(errorText), type: 'upstream_error', code: upstreamStatusToCode(cfResp.status) } }, cfResp.status as any);
+    }
+
+    // 成功
+    return await handleSuccess(account, cfResp);
+  }
+
+  // 无账户可用
+  logger.error('openai', `[AI Image][${rid}] All accounts exhausted. Last error: ${lastError}`);
+  return c.json({ error: { message: 'All accounts exhausted', type: 'quota_exceeded', code: 'ALL_ACCOUNTS_EXHAUSTED', last_error: lastError || 'Unknown error' } }, 429);
+});
+
+// ================================================================
+// POST /audio/speech — 文生语音 TTS（OpenAI-compatible）
+// ================================================================
+const CF_TTS_SPEAKERS = [
+  'amalthea', 'andromeda', 'apollo', 'arcas', 'aries', 'asteria', 'athena', 'atlas',
+  'aurora', 'callista', 'cora', 'cordelia', 'delia', 'draco', 'electra', 'harmonia',
+  'helena', 'hera', 'hermes', 'hyperion', 'iris', 'janus', 'juno', 'jupiter',
+  'luna', 'mars', 'minerva', 'neptune', 'odysseus', 'ophelia', 'orion', 'orpheus',
+  'pandora', 'phoebe', 'pluto', 'saturn', 'thalia', 'theia', 'vesta', 'zeus',
+];
+const VOICE_MAP: Record<string, string> = {
+  alloy: 'luna', echo: 'mars', fable: 'athena', onyx: 'apollo', nova: 'aurora', shimmer: 'iris',
+};
+
+app.post('/audio/speech', async (c) => {
+  const specifiedAccountId = c.req.header('X-Account-ID');
+  const { model, input, voice } = await c.req.json();
+  const rid = getRequestId(c);
+  const env = c.env;
+
+  if (!model || !input) {
+    return c.json({
+      error: { message: 'model and input are required', type: 'invalid_request_error', code: 'bad_request' },
+    }, 400);
+  }
+
+  // 映射 voice → CF speaker
+  const speaker = CF_TTS_SPEAKERS.includes(voice) ? voice : (VOICE_MAP[voice] || 'luna');
+  const cfBody = { text: input, speaker, encoding: 'mp3' };
+
+  /** 从 CF 错误响应中提取可读的错误消息 */
+  const extractCfError = (raw: string): string => {
+    try {
+      const json = JSON.parse(raw);
+      if (json.errors?.[0]?.message) return json.errors[0].message;
+      if (json.error?.message) return json.error.message;
+      if (json.message) return json.message;
+    } catch {}
+    return raw;
+  };
+
+  /** 处理 TTS 成功响应 — 返回二进制音频 */
+  async function handleTtsSuccess(account: any, cfResp: Response): Promise<Response> {
+    const contentType = cfResp.headers.get('content-type') || 'audio/mpeg';
+    const arrayBuffer = await cfResp.arrayBuffer();
+    const audioBuffer = new Uint8Array(arrayBuffer);
+
+    // 转为 base64
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < audioBuffer.length; i += chunkSize) {
+      binary += String.fromCharCode(...audioBuffer.subarray(i, i + chunkSize));
+    }
+    const b64Audio = btoa(binary);
+
+    // 估算神经元消耗
+    const neurons = estimateTtsNeurons(input, model);
+    await incrementQuota(env.DB, account.id, 'ai_neurons', neurons);
+    await clearOptimistic(env, account.id);
+    await invalidateAiCache(env);
+    try {
+      await addAuditLog(env.DB, {
+        account_id: account.id, action: 'ai_tts_generation', target: model,
+        detail: `[${rid}] chars=${input.length} speaker=${speaker} neurons=${neurons}`,
+        status: 'success',
+      });
+    } catch {}
+
+    return c.json({
+      created: Math.floor(Date.now() / 1000),
+      data: [{ audio: b64Audio, neurons, content_type: contentType }],
+    });
+  }
+
+  // --- X-Account-ID 指定账户 ---
+  if (specifiedAccountId && specifiedAccountId !== 'auto') {
+    const allAccounts = await getActiveAccountsByFeature(env.DB, 'ai');
+    const specified = allAccounts.find(a => a.account_id === specifiedAccountId);
+    if (!specified) {
+      return c.json({
+        error: { message: `Account ${specifiedAccountId} not found or inactive`, type: 'invalid_request_error', code: 'ACCOUNT_NOT_FOUND' },
+      }, 404);
+    }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${specified.account_id}/ai/run/${model}`;
+    const authHeaders = await getAuthHeaders(specified, env.ENCRYPTION_KEY);
+    let cfResp: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
+      cfResp = await fetch(cfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(cfBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      logger.error('openai', `[AI TTS][${rid}] Network error: ${netErr.message}`);
+      return c.json({ error: { message: `Network error: ${netErr.message}`, type: 'upstream_error', code: 'NETWORK_ERROR' } }, 502);
+    }
+
+    if (!cfResp.ok) {
+      const errorText = await cfResp.text();
+      logger.error('openai', `[AI TTS][${rid}] CF upstream error ${cfResp.status}: ${errorText.slice(0, 500)}`);
+      if (isNeuronLimitError(errorText)) {
+        await setExhausted(env.DB, specified.id, 'ai_neurons');
+        await invalidateAiCache(env);
+      }
+      return c.json({ error: { message: extractCfError(errorText), type: 'upstream_error', code: upstreamStatusToCode(cfResp.status) } }, cfResp.status as any);
+    }
+    return await handleTtsSuccess(specified, cfResp);
+  }
+
+  // --- 自动轮换账户 ---
+  const skipped = new Set<number>();
+  let lastError = '';
+  while (true) {
+    const account = await selectBestAccount(env, 'ai_neurons', skipped, model);
+    if (!account) break;
+    if (!account.account_id) { skipped.add(account.id); continue; }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${account.account_id}/ai/run/${model}`;
+    const authHeaders = await getAuthHeaders(account, env.ENCRYPTION_KEY);
+    let cfResp: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
+      cfResp = await fetch(cfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(cfBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      lastError = `Network error: ${netErr.message}`;
+      skipped.add(account.id);
+      continue;
+    }
+
+    if (!cfResp.ok) {
+      const errorText = await cfResp.text();
+      lastError = extractCfError(errorText);
+      if (isRetryableError(cfResp.status, errorText)) {
+        if (isNeuronLimitError(errorText)) {
+          await setExhausted(env.DB, account.id, 'ai_neurons');
+          await invalidateAiCache(env);
+        }
+        skipped.add(account.id);
+        continue;
+      }
+      return c.json({ error: { message: extractCfError(errorText), type: 'upstream_error', code: upstreamStatusToCode(cfResp.status) } }, cfResp.status as any);
+    }
+
+    return await handleTtsSuccess(account, cfResp);
+  }
+
+  logger.error('openai', `[AI TTS][${rid}] All accounts exhausted. Last error: ${lastError}`);
+  return c.json({ error: { message: 'All accounts exhausted', type: 'quota_exceeded', code: 'ALL_ACCOUNTS_EXHAUSTED', last_error: lastError || 'Unknown error' } }, 429);
+});
+
+// ================================================================
+// POST /translations — 文本翻译（OpenAI-compatible 自定义扩展）
+// ================================================================
+app.post('/translations', async (c) => {
+  const specifiedAccountId = c.req.header('X-Account-ID');
+  const { model, text, source_lang, target_lang } = await c.req.json();
+  const rid = getRequestId(c);
+  const env = c.env;
+
+  if (!model || !text || !target_lang) {
+    return c.json({
+      error: { message: 'model, text, and target_lang are required', type: 'invalid_request_error', code: 'bad_request' },
+    }, 400);
+  }
+
+  const prompt = source_lang
+    ? `Translate the following text from ${source_lang} to ${target_lang}:\n\n${text}`
+    : `Translate the following text to ${target_lang}:\n\n${text}`;
+
+  const cfBody = { text: prompt };
+
+  const extractCfError = (raw: string): string => {
+    try {
+      const json = JSON.parse(raw);
+      if (json.errors?.[0]?.message) return json.errors[0].message;
+      if (json.error?.message) return json.error.message;
+      if (json.message) return json.message;
+    } catch {}
+    return raw;
+  };
+
+  const handleTranslationSuccess = async (account: any, cfResp: Response): Promise<Response> => {
+    const json = await cfResp.json() as any;
+    const translatedText = json?.result?.translated_text || json?.result?.output || json?.translated_text || '';
+
+    if (!translatedText) {
+      logger.error('openai', `[AI Translation][${rid}] CF returned empty translation`);
+      throw new Error('CF returned empty translation');
+    }
+
+    const neurons = estimateTranslationNeurons(text, model);
+    await incrementQuota(env.DB, account.id, 'ai_neurons', neurons);
+    await clearOptimistic(env, account.id);
+    await invalidateAiCache(env);
+    logger.debug('openai', `[AI Translation][${rid}] estimated ${neurons} neurons for account ${account.name}`);
+    try {
+      await addAuditLog(env.DB, {
+        account_id: account.id, action: 'ai_translation', target: model,
+        detail: `[${rid}] chars=${text.length} source=${source_lang || 'auto'} target=${target_lang} neurons=${neurons}`,
+        status: 'success',
+      });
+    } catch {}
+
+    return c.json({
+      created: Math.floor(Date.now() / 1000),
+      data: [{
+        translated_text: translatedText,
+        source_lang,
+        target_lang,
+        neurons,
+      }],
+    });
+  };
+
+  if (specifiedAccountId && specifiedAccountId !== 'auto') {
+    const allAccounts = await getActiveAccountsByFeature(env.DB, 'ai');
+    const specified = allAccounts.find(a => a.account_id === specifiedAccountId);
+    if (!specified) {
+      return c.json({
+        error: { message: `Account ${specifiedAccountId} not found or inactive`, type: 'invalid_request_error', code: 'ACCOUNT_NOT_FOUND' },
+      }, 404);
+    }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${specified.account_id}/ai/run/${model}`;
+    const authHeaders = await getAuthHeaders(specified, env.ENCRYPTION_KEY);
+    let cfResp: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
+      cfResp = await fetch(cfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(cfBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      logger.error('openai', `[AI Translation][${rid}] Network error: ${netErr.message}`);
+      return c.json({ error: { message: `Network error: ${netErr.message}`, type: 'upstream_error', code: 'NETWORK_ERROR' } }, 502);
+    }
+
+    if (!cfResp.ok) {
+      const errorText = await cfResp.text();
+      logger.error('openai', `[AI Translation][${rid}] CF upstream error ${cfResp.status}: ${errorText.slice(0, 500)}`);
+      if (isNeuronLimitError(errorText)) {
+        await setExhausted(env.DB, specified.id, 'ai_neurons');
+        await invalidateAiCache(env);
+      }
+      return c.json({ error: { message: extractCfError(errorText), type: 'upstream_error', code: upstreamStatusToCode(cfResp.status) } }, cfResp.status as any);
+    }
+    return await handleTranslationSuccess(specified, cfResp);
+  }
+
+  const skipped = new Set<number>();
+  let lastError = '';
+  while (true) {
+    const account = await selectBestAccount(env, 'ai_neurons', skipped, model);
+    if (!account) break;
+    if (!account.account_id) { skipped.add(account.id); continue; }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${account.account_id}/ai/run/${model}`;
+    const authHeaders = await getAuthHeaders(account, env.ENCRYPTION_KEY);
+    let cfResp: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
+      cfResp = await fetch(cfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(cfBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      lastError = `Network error: ${netErr.message}`;
+      skipped.add(account.id);
+      continue;
+    }
+
+    if (!cfResp.ok) {
+      const errorText = await cfResp.text();
+      lastError = extractCfError(errorText);
+      if (isRetryableError(cfResp.status, errorText)) {
+        if (isNeuronLimitError(errorText)) {
+          await setExhausted(env.DB, account.id, 'ai_neurons');
+          await invalidateAiCache(env);
+        }
+        skipped.add(account.id);
+        continue;
+      }
+      return c.json({ error: { message: extractCfError(errorText), type: 'upstream_error', code: upstreamStatusToCode(cfResp.status) } }, cfResp.status as any);
+    }
+
+    return await handleTranslationSuccess(account, cfResp);
+  }
+
+  logger.error('openai', `[AI Translation][${rid}] All accounts exhausted. Last error: ${lastError}`);
   return c.json({ error: { message: 'All accounts exhausted', type: 'quota_exceeded', code: 'ALL_ACCOUNTS_EXHAUSTED', last_error: lastError || 'Unknown error' } }, 429);
 });
 
