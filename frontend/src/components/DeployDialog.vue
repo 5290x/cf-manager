@@ -89,7 +89,8 @@
 import { ref, computed, watch, h } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMessage, NTag } from 'naive-ui';
-import { workersApi, DeployTarget, DeployVarInput, DeployBindingInput } from '../api/workers';
+import { workersApi } from '../api/workers';
+import type { DeployTarget, DeployVarInput, DeployBindingInput } from '../api/workers';
 import { useWorkerStore } from '../stores/workerStore';
 import { hasR2Feature } from '../utils/r2Feature'; // Task 10 Step 3 创建
 import DeployEnvVarsTab from './DeployEnvVarsTab.vue';
