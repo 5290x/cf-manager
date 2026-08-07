@@ -83,12 +83,17 @@ function onTabChange(tab: string) {
 
 .ai-unified-tabs :deep(.n-tabs-pane-wrapper) {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .ai-unified-tabs :deep(.n-tab-pane) {
   height: 100%;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .ai-unified-tabs :deep(.n-tabs-nav) {

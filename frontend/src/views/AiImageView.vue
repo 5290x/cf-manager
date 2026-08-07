@@ -508,7 +508,9 @@ onMounted(() => {
 <style scoped>
 .ai-image-root {
   display: flex;
-  height: calc(100vh - 120px);
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
   padding: 12px;
   gap: 12px;
 }
@@ -697,7 +699,6 @@ onMounted(() => {
 @media (max-width: 768px) {
   .ai-image-root {
     flex-direction: column;
-    height: auto;
     padding: 8px;
   }
 

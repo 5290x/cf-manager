@@ -337,7 +337,9 @@ watch(selectedAccount, () => {
 .ai-view-root {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .ai-input-bar {
@@ -400,9 +402,6 @@ watch(selectedAccount, () => {
 }
 
 @media (max-width: 768px) {
-  .ai-view-root {
-    height: calc(100vh - 80px);
-  }
   .ai-input-bar {
     padding: 8px 12px;
   }

@@ -189,6 +189,8 @@ chmod +x deploy.sh && ./deploy.sh
 | 定时任务 | `src/routes/tasks.ts` | —（Worker 用 scheduled handler） |
 | 路由工具函数 | `src/routes/routeUtils.ts` | — |
 
+> **TTS 模型入参注意**：不同 TTS 模型的入参完全不同（如 `aura-2-en` 用 `text+speaker+encoding` 且 speaker 为 38 个希腊名、`aura-2-es` 同上但 speaker 仅 10 个西/意名、`aura-1` speaker 仅 12 个、`melotts` 用 `prompt`+`lang` 且无 `speaker`/`encoding`）。**不要写死请求体或全局说话人列表**。当前实现通过 `GET /accounts/{account_id}/ai/models/schema?model={model}` 动态获取每个模型的 input schema（`getModelInputSchema`，缓存于 `aiService.ts`），并用 `buildTtsCfBody` 只发送 schema 存在的字段（`prompt`/`text` 自动识别、speaker 用枚举校验并兜底、`encoding` 仅在该模型支持时设置）；`/api/v1/models?task=text-to-speech` 会附带 `speakers`/`default_speaker`/`advanced_params`，前端按模型渲染说话人下拉框（无 speaker 的模型禁用），并把 `container`/`sample_rate`/`bit_rate`/`lang` 等可选参数收进"高级设置"折叠面板（schema 驱动，不支持的字段不展示、不提交）。
+
 ### 后端业务逻辑（services/）
 
 | 任务 | Docker 版 (backend/) | Worker 版 (worker/) |

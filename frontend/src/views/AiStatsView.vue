@@ -121,7 +121,9 @@ onMounted(() => {
 
 <style scoped>
 .ai-stats-root {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
   overflow-y: auto;
   padding: 16px 20px;
 }

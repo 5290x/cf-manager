@@ -69,7 +69,7 @@
     "dns": "DNS 管理",
     "workers": "Workers",
     "storage": "存储管理",
-    "ai": "AI 推理",
+    "ai": "AI 工作台",
     "aiImage": "AI 绘图",
     "browserRender": "浏览器渲染",
     "store": "模板商店",
@@ -435,7 +435,7 @@
     }
   },
   "ai": {
-    "title": "AI 推理",
+    "title": "AI 工作台",
     "welcome": "有什么我能帮你的吗？",
     "account": "账户",
     "selectModel": "选择模型",
@@ -506,6 +506,17 @@
     "title": "AI 语音合成",
     "selectModel": "选择模型",
     "selectVoice": "选择语音",
+    "noSpeaker": "该模型不支持语音选择",
+    "noSpeakerHint": "当前模型无 speaker 参数，将使用其默认语音直接合成。",
+    "showAdvanced": "高级设置",
+    "noAdvancedHint": "该模型没有其他可调参数。",
+    "param": {
+      "encoding": "编码",
+      "container": "容器",
+      "sample_rate": "采样率",
+      "bit_rate": "比特率",
+      "lang": "语言"
+    },
     "textPlaceholder": "输入要合成的文本...",
     "generate": "合成",
     "generating": "正在合成语音...",

@@ -319,10 +319,10 @@ const menuOptions = computed(() => [
   { label: t('menu.dns'), key: 'dns', icon: renderIcon(GlobeOutline) },
   { label: t('menu.workers'), key: 'workers', icon: renderIcon(ConstructOutline) },
   { label: t('menu.storage'), key: 'storage', icon: renderIcon(ServerOutline) },
-{ label: t('menu.ai'), key: 'ai', icon: renderIcon(SparklesOutline) },
+  { label: t('menu.tunnels'), key: 'tunnels', icon: renderIcon(GitBranchOutline) },
+  { label: t('menu.ai'), key: 'ai', icon: renderIcon(SparklesOutline) },
   { label: t('menu.browserRender'), key: 'browser-render', icon: renderIcon(ImageOutline) },
   { label: t('menu.store'), key: 'store', icon: renderIcon(StorefrontOutline) },
-  { label: t('menu.tunnels'), key: 'tunnels', icon: renderIcon(GitBranchOutline) },
   { label: t('menu.settings'), key: 'settings', icon: renderIcon(SettingsOutline) },
 ]);
 

@@ -30,7 +30,7 @@
           class="lang-select"
         />
         <n-icon class="arrow-icon">
-          <ArrowRightOutlined />
+          <ArrowForwardOutline />
         </n-icon>
         <n-select
           v-model:value="targetLang"
@@ -49,9 +49,9 @@
           :maxlength="10000"
           show-count
         />
-        <n-button quaternary circle size="large" @click="swapLanguages" :disabled="!sourceText">
+        <n-button quaternary circle size="large" @click="swapLanguages" :disabled="isIndicTrans2Model || sourceLang === 'auto'">
           <template #icon>
-            <n-icon><SwapOutlined /></n-icon>
+            <n-icon><SwapHorizontalOutline /></n-icon>
           </template>
         </n-button>
         <n-input
@@ -74,7 +74,7 @@
             @click="translate"
           >
             <template #icon>
-              <n-icon><TranslationOutlined /></n-icon>
+              <n-icon><LanguageOutline /></n-icon>
             </template>
             {{ t('aiTranslate.translateBtn') }}
           </n-button>
@@ -84,14 +84,14 @@
             @click="copyResult"
           >
             <template #icon>
-              <n-icon><CopyOutlined /></n-icon>
+              <n-icon><CopyOutline /></n-icon>
             </template>
             {{ t('aiTranslate.copyBtn') }}
           </n-button>
         </n-space>
         <n-tag v-if="lastNeurons > 0" type="info" round>
           <template #icon>
-            <n-icon><ThunderboltOutlined /></n-icon>
+            <n-icon><FlashOutline /></n-icon>
           </template>
           {{ t('aiTranslate.neuronsUsed', { count: lastNeurons }) }}
         </n-tag>
@@ -105,80 +105,130 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMessage } from 'naive-ui';
 import {
-  ArrowRightOutlined,
-  SwapOutlined,
-  TranslationOutlined,
-  CopyOutlined,
-  ThunderboltOutlined,
-} from '@vicons/antd';
+  ArrowForwardOutline,
+  SwapHorizontalOutline,
+  LanguageOutline,
+  CopyOutline,
+  FlashOutline,
+} from '@vicons/ionicons5';
 import apiClient from '../api/client';
-import { accountStore } from '../stores/accountStore';
+import { accountsApi } from '../api/accounts';
 
 const { t } = useI18n();
 const message = useMessage();
 
-const selectedAccountId = ref<string | null>(null);
-const selectedModel = ref<string>('');
-const sourceLang = ref<string | null>(null);
+const selectedAccountId = ref<string>('auto');
+const selectedModel = ref<string>('@cf/meta/m2m100-1.2b');
+const sourceLang = ref<string>('auto');
 const targetLang = ref<string>('en');
 const sourceText = ref('');
 const translatedText = ref('');
 const loading = ref(false);
 const lastNeurons = ref(0);
 
-const accountOptions = computed(() => {
-  return accountStore.accounts
-    .filter((a: any) => a.ai_enabled)
-    .map((a: any) => ({ label: a.name, value: a.id }));
-});
+const accountOptions = ref<{ label: string; value: string }[]>([]);
+
+async function fetchAccounts() {
+  try {
+    const { data } = await accountsApi.getAll();
+    const accounts = (data.accounts || [])
+      .filter((a: any) => a.is_active && (a.enabled_features || '').includes('ai'))
+      .map((a: any) => ({
+        label: a.name,
+        value: a.account_id || String(a.id),
+      }));
+    accountOptions.value = [
+      { label: '🤖 ' + t('ai.autoAssign'), value: 'auto' },
+      ...accounts,
+    ];
+  } catch {
+    accountOptions.value = [{ label: '🤖 ' + t('ai.autoAssign'), value: 'auto' }];
+  }
+}
+
+const M2M100_LANGUAGES = [
+  { label: 'English', value: 'en' },
+  { label: '中文', value: 'zh' },
+  { label: '日本語', value: 'ja' },
+  { label: '한국어', value: 'ko' },
+  { label: 'Français', value: 'fr' },
+  { label: 'Deutsch', value: 'de' },
+  { label: 'Español', value: 'es' },
+  { label: 'Português', value: 'pt' },
+  { label: 'Русский', value: 'ru' },
+  { label: 'Italiano', value: 'it' },
+  { label: 'العربية', value: 'ar' },
+  { label: 'हिन्दी', value: 'hi' },
+];
+
+const INDICTRANS2_LANGUAGES = [
+  { label: 'Hindi (हिन्दी)', value: 'hin_Deva' },
+  { label: 'Bengali (বাংলা)', value: 'ben_Beng' },
+  { label: 'Tamil (தமிழ்)', value: 'tam_Taml' },
+  { label: 'Telugu (తెలుగు)', value: 'tel_Telu' },
+  { label: 'Marathi (मराठी)', value: 'mar_Deva' },
+  { label: 'Gujarati (ગુજરાતી)', value: 'guj_Gujr' },
+  { label: 'Kannada (ಕನ್ನಡ)', value: 'kan_Knda' },
+  { label: 'Malayalam (മലയാളം)', value: 'mal_Mlym' },
+  { label: 'Punjabi (ਪੰਜਾਬੀ)', value: 'pan_Guru' },
+  { label: 'Urdu (اردو)', value: 'urd_Arab' },
+  { label: 'Nepali (नेपाली)', value: 'npi_Deva' },
+  { label: 'Odia (ଓଡ଼ିଆ)', value: 'ory_Orya' },
+  { label: 'Assamese (অসমীয়া)', value: 'asm_Beng' },
+  { label: 'Sanskrit (संस्कृत)', value: 'san_Deva' },
+  { label: 'Sindhi (سنڌي)', value: 'snd_Arab' },
+  { label: 'Maithili (मैथिली)', value: 'mai_Deva' },
+  { label: 'Bhojpuri (भोजपुरी)', value: 'bho_Deva' },
+  { label: 'Dogri (डोगरी)', value: 'doi_Deva' },
+  { label: 'Konkani (कोंकणी)', value: 'gom_Deva' },
+  { label: 'Manipuri (মৈতৈলোন)', value: 'mni_Mtei' },
+];
+
+const isIndicTrans2Model = computed(() => selectedModel.value.includes('indictrans2'));
 
 const modelOptions = computed(() => {
   const models = [
     { label: 'M2M100 1.2B (Multi-language)', value: '@cf/meta/m2m100-1.2b' },
-    { label: 'IndicTrans2 EN-Indic 1B', value: '@cf/ai4bharat/indictrans2-en-indic-1B' },
+    { label: 'IndicTrans2 EN→Indic 1B', value: '@cf/ai4bharat/indictrans2-en-indic-1B' },
   ];
   return models;
 });
 
 const sourceLangOptions = computed(() => {
+  if (isIndicTrans2Model.value) {
+    // IndicTrans2 only supports English source
+    return [{ label: 'English', value: 'en' }];
+  }
   return [
-    { label: t('aiTranslate.auto'), value: null },
-    { label: 'English', value: 'English' },
-    { label: '中文', value: 'Chinese' },
-    { label: '日本語', value: 'Japanese' },
-    { label: '한국어', value: 'Korean' },
-    { label: 'Français', value: 'French' },
-    { label: 'Deutsch', value: 'German' },
-    { label: 'Español', value: 'Spanish' },
-    { label: 'Português', value: 'Portuguese' },
-    { label: 'Русский', value: 'Russian' },
-    { label: 'Italiano', value: 'Italian' },
+    { label: t('aiTranslate.auto'), value: 'auto' },
+    ...M2M100_LANGUAGES,
   ];
 });
 
 const targetLangOptions = computed(() => {
-  return [
-    { label: 'English', value: 'English' },
-    { label: '中文', value: 'Chinese' },
-    { label: '日本語', value: 'Japanese' },
-    { label: '한국어', value: 'Korean' },
-    { label: 'Français', value: 'French' },
-    { label: 'Deutsch', value: 'German' },
-    { label: 'Español', value: 'Spanish' },
-    { label: 'Português', value: 'Portuguese' },
-    { label: 'Русский', value: 'Russian' },
-    { label: 'Italiano', value: 'Italian' },
-  ];
+  if (isIndicTrans2Model.value) {
+    return INDICTRANS2_LANGUAGES;
+  }
+  return M2M100_LANGUAGES;
 });
 
 const canTranslate = computed(() => {
   return !!selectedModel.value && !!sourceText.value.trim() && !!targetLang.value;
 });
 
-onMounted(() => {
-  if (accountStore.accounts.length === 0) {
-    accountStore.fetchAccounts();
+// 切换模型时重置语言选择
+watch(selectedModel, (newModel) => {
+  if (newModel.includes('indictrans2')) {
+    sourceLang.value = 'en';
+    targetLang.value = 'hin_Deva';
+  } else {
+    sourceLang.value = 'auto';
+    targetLang.value = 'en';
   }
+});
+
+onMounted(() => {
+  fetchAccounts();
 });
 
 async function translate() {
@@ -196,7 +246,7 @@ async function translate() {
     const response = await apiClient.post('/v1/translations', {
       model: selectedModel.value,
       text: sourceText.value,
-      source_lang: sourceLang.value || undefined,
+      source_lang: sourceLang.value === 'auto' ? undefined : sourceLang.value,
       target_lang: targetLang.value,
     }, { headers });
 
@@ -217,8 +267,8 @@ async function translate() {
 
 function swapLanguages() {
   const temp = sourceLang.value;
-  sourceLang.value = targetLang;
-  targetLang.value = temp || 'en';
+  sourceLang.value = targetLang.value;
+  targetLang.value = temp || 'auto';
 
   const tempText = sourceText.value;
   sourceText.value = translatedText.value;
@@ -241,7 +291,9 @@ function onAccountChange() {
 .ai-translate-view {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
   padding: 16px;
   gap: 16px;
 }
@@ -262,6 +314,7 @@ function onAccountChange() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
 .lang-selector {

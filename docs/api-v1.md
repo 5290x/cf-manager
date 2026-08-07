@@ -148,6 +148,167 @@ data: [DONE]
 
 ---
 
+## AI 图片生成
+
+### 生成图片
+
+```
+POST /v1/images/generations
+```
+
+兼容 OpenAI Images API，调用 Cloudflare Workers AI 生成图片。支持文生图和图生图。
+
+**请求体：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `model` | string | 是 | 模型名称，如 `@cf/black-forest-labs/flux-1-schnell` |
+| `prompt` | string | 是 | 提示词 |
+| `image` | string | 否 | 图生图模式下的参考图（base64，不含 Data URL 前缀） |
+| `num_steps` | number | 否 | 生成步数，Flux 默认 4，SDXL 默认 20 |
+| `width` | number | 否 | 图片宽度（仅 SDXL，默认 1024） |
+| `height` | number | 否 | 图片高度（仅 SDXL，默认 1024） |
+| `guidance` | number | 否 | 引导强度（仅 SDXL，默认 7.5） |
+| `negative_prompt` | string | 否 | 反向提示词（仅 SDXL） |
+| `strength` | number | 否 | 图生图强度 0-1（仅 SDXL，默认 0.6） |
+
+**请求示例：**
+
+```json
+{
+  "model": "@cf/black-forest-labs/flux-1-schnell",
+  "prompt": "a cute cat sitting on a windowsill"
+}
+```
+
+**成功响应：**
+
+```json
+{
+  "created": 1718179200,
+  "data": [
+    {
+      "b64_json": "iVBORw0KGgoAAAANSUhEUgAA...",
+      "neurons": 12
+    }
+  ]
+}
+```
+
+---
+
+## AI 语音合成
+
+### 生成语音
+
+```
+POST /v1/audio/speech
+```
+
+兼容 OpenAI Audio API，调用 Cloudflare Workers AI 生成语音。
+
+**请求体：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `model` | string | 是 | 模型名称，如 `@cf/myshell-ai/melotts` |
+| `input` | string | 是 | 要合成语音的文本（最多 5000 字符） |
+| `voice` | string | 否 | 说话人名称，默认 `luna` |
+
+> 支持的说话人：OpenAI 兼容语音 `alloy`/`echo`/`fable`/`onyx`/`nova`/`shimmer`（自动映射到 CF 原生说话人），以及 CF 原生说话人 `luna`/`mars`/`athena`/`apollo` 等 40+ 种。
+
+**请求示例：**
+
+```json
+{
+  "model": "@cf/myshell-ai/melotts",
+  "input": "Hello, world!",
+  "voice": "alloy"
+}
+```
+
+**成功响应：**
+
+```json
+{
+  "created": 1718179200,
+  "data": [
+    {
+      "audio": "SGVsbG8sIHdvcmxkIQ==...",
+      "content_type": "audio/mpeg",
+      "neurons": 8
+    }
+  ]
+}
+```
+
+---
+
+## AI 文本翻译
+
+### 翻译文本
+
+```
+POST /v1/translations
+```
+
+调用 Cloudflare Workers AI 翻译模型，支持多语言翻译。
+
+**请求体：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `model` | string | 是 | 模型名称 |
+| `text` | string | 是 | 要翻译的文本 |
+| `source_lang` | string | 否 | 源语言代码（M2M100 用，如 `en`/`zh`/`ja`，不填自动检测） |
+| `target_lang` | string | 是 | 目标语言代码 |
+
+**支持的模型：**
+
+| 模型 | source_lang 格式 | target_lang 格式 | 支持的源语言 |
+|---|---|---|---|
+| `@cf/meta/m2m100-1.2b` | `en`/`zh`/`ja`/`fr` 等语言代码 | 同左 | 多语言互译 |
+| `@cf/ai4bharat/indictrans2-en-indic-1B` | 固定 `en`（英语） | `hin_Deva`/`ben_Beng`/`tam_Taml` 等 | 仅 English → 印度语系 |
+
+**请求示例（M2M100）：**
+
+```json
+{
+  "model": "@cf/meta/m2m100-1.2b",
+  "text": "Hello, world!",
+  "source_lang": "en",
+  "target_lang": "zh"
+}
+```
+
+**请求示例（IndicTrans2）：**
+
+```json
+{
+  "model": "@cf/ai4bharat/indictrans2-en-indic-1B",
+  "text": "Hello, world!",
+  "target_lang": "hin_Deva"
+}
+```
+
+**成功响应：**
+
+```json
+{
+  "created": 1718179200,
+  "data": [
+    {
+      "translated_text": "你好，世界！",
+      "source_lang": "en",
+      "target_lang": "zh",
+      "neurons": 5
+    }
+  ]
+}
+```
+
+---
+
 ## 浏览器渲染接口
 
 ### 渲染页面
@@ -283,6 +444,30 @@ POST /v1/browser/render
   }
 }
 ```
+
+### 查看渲染状态
+
+```
+GET /v1/browser/status
+```
+
+返回当前浏览器渲染的账户可用状态。
+
+**成功响应：**
+
+```json
+{
+  "available_accounts": 3,
+  "total_accounts": 5,
+  "token_interval_ms": 5000
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `available_accounts` | 当前可用的渲染账户数（未耗尽配额） |
+| `total_accounts` | 启用了浏览器渲染的账户总数 |
+| `token_interval_ms` | 令牌桶间隔（毫秒），控制请求频率 |
 
 ---
 

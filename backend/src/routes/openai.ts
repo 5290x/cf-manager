@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { Readable } from 'stream';
 import { selectBestAccount } from '../services/accountRouter';
 import { getActiveAccountsByFeature } from '../models/account';
-import { getAvailableModels } from '../services/aiService';
+import { getAvailableModels, getModelInputSchema, extractTtsAdvancedParams, buildTtsCfBody } from '../services/aiService';
 import { getAuthHeaders } from '../services/cfFactory';
 import { createAuditLog } from '../models/auditLog';
 import { proxyFetch } from '../services/proxyService';
@@ -126,13 +126,37 @@ router.get('/models', async (req: Request, res: Response, next: NextFunction) =>
     const taskFilter = req.query.task as string | undefined;
     const models = await getAvailableModels(account, taskFilter);
 
-    const data = models.map((m: any) => ({
-      id: m.name || m.id,
-      object: 'model',
-      created: Math.floor(Date.now() / 1000),
-      owned_by: 'cloudflare',
-      task: m.task?.name || m.task || undefined,
-    }));
+    // TTS 模型：一次性获取模型 schema，下发 speaker 枚举与高级可选参数
+    let ttsModelMeta: Record<string, { speakers?: string[]; default_speaker?: string; advanced_params?: Record<string, any> }> = {};
+    if (taskFilter && taskFilter.toLowerCase().replace(/-/g, ' ').includes('text to speech')) {
+      await Promise.all(models.map(async (m: any) => {
+        const modelId = m.name || m.id;
+        if (!modelId) return;
+        const schema = await getModelInputSchema(account, modelId);
+        if (!schema) return;
+        const speakerProp = schema.properties?.speaker;
+        ttsModelMeta[modelId] = {
+          speakers: Array.isArray(speakerProp?.enum) ? speakerProp.enum : [],
+          default_speaker: speakerProp?.default,
+          advanced_params: extractTtsAdvancedParams(schema),
+        };
+      }));
+    }
+
+    const data = models.map((m: any) => {
+      const modelId = m.name || m.id;
+      const meta = ttsModelMeta[modelId] || {};
+      return {
+        id: modelId,
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'cloudflare',
+        task: m.task?.name || m.task || undefined,
+        speakers: meta.speakers || undefined,
+        default_speaker: meta.default_speaker || undefined,
+        advanced_params: meta.advanced_params || undefined,
+      };
+    });
     res.json({ object: 'list', data });
   } catch (err) { next(err); }
 });
@@ -790,13 +814,9 @@ router.post('/images/generations', async (req: Request, res: Response, next: Nex
 // ================================================================
 // POST /audio/speech — 文生语音 TTS（OpenAI-compatible）
 // ================================================================
-const CF_TTS_SPEAKERS = [
-  'amalthea', 'andromeda', 'apollo', 'arcas', 'aries', 'asteria', 'athena', 'atlas',
-  'aurora', 'callista', 'cora', 'cordelia', 'delia', 'draco', 'electra', 'harmonia',
-  'helena', 'hera', 'hermes', 'hyperion', 'iris', 'janus', 'juno', 'jupiter',
-  'luna', 'mars', 'minerva', 'neptune', 'odysseus', 'ophelia', 'orion', 'orpheus',
-  'pandora', 'phoebe', 'pluto', 'saturn', 'thalia', 'theia', 'vesta', 'zeus',
-];
+// 注意：不同 TTS 模型的 speaker 枚举完全不同（如 aura-2-en 38 个希腊名、aura-2-es 10 个西/意名、
+// aura-1 12 个、melotts 无 speaker 参数），因此不能写死全局列表，须由 getModelSpeakerEnum 动态获取。
+// VOICE_MAP 仅作为 OpenAI 音色名 → CF speaker 的备选映射，最终仍以模型 schema 枚举为准。
 const VOICE_MAP: Record<string, string> = {
   alloy: 'luna', echo: 'mars', fable: 'athena', onyx: 'apollo', nova: 'aurora', shimmer: 'iris',
 };
@@ -804,7 +824,7 @@ const VOICE_MAP: Record<string, string> = {
 router.post('/audio/speech', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const specifiedAccountId = req.headers['x-account-id'] as string | undefined;
-    const { model, input, voice } = req.body;
+    const { model, input, voice, encoding, container, sample_rate, bit_rate, lang } = req.body;
     const rid = req.requestId || '-';
 
     if (!model || !input) {
@@ -814,9 +834,29 @@ router.post('/audio/speech', async (req: Request, res: Response, next: NextFunct
       return;
     }
 
-    // 映射 voice → CF speaker
-    const speaker = CF_TTS_SPEAKERS.includes(voice) ? voice : (VOICE_MAP[voice] || 'luna');
-    const cfBody = { text: input, speaker, encoding: 'mp3' };
+    // 选定用于解析 speaker 枚举 / 兜底的目标账户
+    let targetAccount: any = null;
+    if (specifiedAccountId && specifiedAccountId !== 'auto') {
+      targetAccount = getActiveAccountsByFeature('ai').find((a: any) => a.account_id === specifiedAccountId) || null;
+    } else {
+      targetAccount = await selectBestAccount('ai_neurons', undefined, model);
+    }
+    if (!targetAccount) {
+      res.status(503).json({
+        error: { message: 'No active AI accounts available', type: 'service_error', code: 'NO_ACCOUNTS' },
+      });
+      return;
+    }
+
+    // 按模型 schema 动态构造 CF 请求体（melotts 用 prompt+lang，aura 系列用 text+speaker+encoding）
+    const inputSchema = await getModelInputSchema(targetAccount, model);
+    const { body: cfBody, speaker } = buildTtsCfBody(inputSchema, input, voice, VOICE_MAP, {
+      encoding,
+      container,
+      sample_rate,
+      bit_rate,
+      lang,
+    });
 
     /** 从 CF 错误响应中提取可读的错误消息 */
     const extractCfError = (raw: string): string => {
@@ -831,10 +871,57 @@ router.post('/audio/speech', async (req: Request, res: Response, next: NextFunct
 
     /** 处理 TTS 成功响应 — 返回 JSON（base64 音频，与 Worker 端一致） */
     const handleTtsSuccess = async (account: any, cfResp: any) => {
-      const contentType = cfResp.headers.get('content-type') || 'audio/mpeg';
+      const rawContentType = cfResp.headers.get('content-type') || 'audio/mpeg';
       const arrayBuffer = await cfResp.arrayBuffer();
-      const audioBuffer = Buffer.from(arrayBuffer);
-      const b64Audio = audioBuffer.toString('base64');
+      let b64Audio = '';
+      let audioContentType = rawContentType;
+
+      if (rawContentType.includes('json')) {
+        // melotts 等模型可能返回 JSON { audio: "base64..." } 或被 SDK 解包后的结构
+        const text = Buffer.from(arrayBuffer).toString('utf8');
+        try {
+          const json = JSON.parse(text);
+          // 递归查找最像 base64 字符串的字段（兼容 audio / result.audio / data.audio / 单字符串等多种结构）
+          const findBase64 = (obj: any, depth = 0): string => {
+            if (depth > 5 || obj == null) return '';
+            if (typeof obj === 'string') {
+              // base64 通常长度 > 100 且字符集为 [A-Za-z0-9+/=]
+              return obj.length > 100 && /^[A-Za-z0-9+/=]+$/.test(obj) ? obj : '';
+            }
+            if (typeof obj !== 'object') return '';
+            if (typeof obj.audio === 'string' && obj.audio.length > 50) return obj.audio;
+            for (const v of Object.values(obj)) {
+              const r = findBase64(v, depth + 1);
+              if (r) return r;
+            }
+            return '';
+          };
+          b64Audio = findBase64(json);
+        } catch {
+          b64Audio = Buffer.from(text).toString('base64');
+          audioContentType = 'audio/mpeg';
+        }
+      } else {
+        b64Audio = Buffer.from(arrayBuffer).toString('base64');
+      }
+
+      // 音频为空：明确返回 502 错误，避免前端拿到空 data URL 播放 0s
+      if (!b64Audio) {
+        appLogger.warn(`[AI TTS][${rid}] ${model} 返回空音频 (content-type=${rawContentType}, bytes=${arrayBuffer.byteLength})`);
+        return res.status(502).json({
+          error: {
+            message: `TTS 模型未返回音频数据（content-type=${rawContentType}, bytes=${arrayBuffer.byteLength}）`,
+            type: 'upstream_error',
+            code: 'EMPTY_AUDIO',
+          },
+        });
+      }
+
+      // 仅保留音频 MIME；若 CF 返回的是 application/json（JSON base64 响应），用 audio/mpeg 占位（MeloTTS 实际输出 wav，
+      // 浏览器对 wav 需 audio/wav，若仍 0s 可在高级设置通过转换或后端推断调整）
+      if (!audioContentType.startsWith('audio/')) {
+        audioContentType = 'audio/mpeg';
+      }
 
       // 估算神经元消耗
       const neurons = estimateTtsNeurons(input, model);
@@ -845,7 +932,7 @@ router.post('/audio/speech', async (req: Request, res: Response, next: NextFunct
 
       res.json({
         created: Math.floor(Date.now() / 1000),
-        data: [{ audio: b64Audio, neurons, content_type: contentType }],
+        data: [{ audio: b64Audio, neurons, content_type: audioContentType }],
       });
     };
 
@@ -945,11 +1032,11 @@ router.post('/translations', async (req: Request, res: Response, next: NextFunct
       return;
     }
 
-    const prompt = source_lang
-      ? `Translate the following text from ${source_lang} to ${target_lang}:\n\n${text}`
-      : `Translate the following text to ${target_lang}:\n\n${text}`;
-
-    const cfBody = { text: prompt };
+    // 根据模型构建不同的 CF 请求体
+    const isIndicTrans2 = model.includes('indictrans2');
+    const cfBody: Record<string, any> = isIndicTrans2
+      ? { text, target_language: target_lang }           // IndicTrans2: { text, target_language }
+      : { text, source_lang: source_lang || 'en', target_lang }; // M2M100: { text, source_lang, target_lang }
 
     const extractCfError = (raw: string): string => {
       try {
@@ -963,7 +1050,9 @@ router.post('/translations', async (req: Request, res: Response, next: NextFunct
 
     const handleTranslationSuccess = async (account: any, cfResp: any) => {
       const json = await cfResp.json() as any;
-      const translatedText = json?.result?.translated_text || json?.result?.output || json?.translated_text || '';
+      const translatedText = isIndicTrans2
+        ? (json?.result?.translations?.[0] || '')
+        : (json?.result?.translated_text || json?.result?.output || json?.translated_text || '');
 
       if (!translatedText) {
         appLogger.error(`[AI Translation][${rid}] CF returned empty translation`);

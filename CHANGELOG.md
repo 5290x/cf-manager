@@ -27,9 +27,16 @@
 
 ### 🐛 Bug 修复
 
+- **AI 翻译 API 修复**：修复翻译模型入参格式错误（M2M100 需要 `{text, source_lang, target_lang}`，IndicTrans2 需要 `{text, target_language}`），旧代码将原文包装成 prompt 指令字符串导致调用失败。
+- **AI 翻译前端修复**：根据模型动态显示不同语言列表（M2M100 多语言 / IndicTrans2 印度语系），语言值改为 CF 语言代码，切换模型自动重置语言，自动检测为默认选中。
+- **AI 统一视图布局修复**：修复所有 AI 子页面高度超出问题（`calc(100vh)` → `flex:1 + min-height:0 + box-sizing:border-box`），`n-tab-pane` 改为 flex 容器。
+- **菜单重命名**：「AI 推理」→「AI 工作台」，更符合当前多功能定位。
+- **菜单排序**：「隧道/回源」菜单移至「AI 工作台」上方。
+- **Worker 端点补全**：Worker 补充 `GET /accounts/:id/credentials`（查看凭证）和 `POST /v1/browser/render` + `GET /v1/browser/status`（外部浏览器渲染）端点，与 backend 对称。
 - **AI 图片生成修复**：修复 `responseWrapper` 错误包装 `/api/v1/images/generations` 响应导致前端解析失败（图片不显示）。
 - **CF API 错误信息提取**：修复 CF API 错误信息未正确提取，前端显示原始 JSON 而非可读错误消息。
 - **Flux 2 multipart 修复**：修复 Flux 2 模型（如 `flux-2-klein-9b`）需要 `multipart/form-data` 格式请求，之前统一用 JSON 导致 `required properties are 'multipart'` 错误。
+- **TTS 请求体 schema 驱动重构**：修复文生语音（`/audio/speech`）对部分 TTS 模型报 `enum X not in ...` 或 `required properties at '/' are 'prompt'` 的 400 错误。不同 TTS 模型的入参完全不同（如 `aura-2-en` 用 `text+speaker+encoding` 且 speaker 为 38 个希腊名、`aura-2-es` 同上但 speaker 仅 10 个西/意名、`aura-1` speaker 仅 12 个、`melotts` 用 `prompt+lang` 且无 `speaker`/`encoding`），原先写死 `{ text, speaker, encoding }` 的请求体只适配 `aura-2-en`。现改为按模型 schema（`/ai/models/schema`）动态构造请求体：只发送 schema 存在的字段、`prompt`/`text` 自动识别、speaker 用枚举校验并兜底、`encoding` 仅在该模型支持 mp3 时设置；模型列表接口为每个 TTS 模型下发 `speakers`/`default_speaker`/`advanced_params`，前端按实际枚举渲染说话人下拉框（无 speaker 的模型禁用），并将 `container`/`sample_rate`/`bit_rate`/`lang` 等可选参数收进"高级设置"折叠面板（按模型 schema 动态渲染，不支持的字段不展示、不提交）。双后端（Express + Hono）对称实现。
 
 ### 🔧 优化
 

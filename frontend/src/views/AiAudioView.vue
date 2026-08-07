@@ -26,10 +26,50 @@
         <n-select
           v-model:value="selectedVoice"
           :options="voiceOptions"
-          :placeholder="t('aiAudio.selectVoice')"
+          :placeholder="modelHasSpeaker ? t('aiAudio.selectVoice') : t('aiAudio.noSpeaker')"
           size="small"
           filterable
+          :disabled="!modelHasSpeaker"
         />
+        <p v-if="!modelHasSpeaker" class="ai-audio-hint">{{ t('aiAudio.noSpeakerHint') }}</p>
+      </div>
+
+      <!-- 高级设置（按模型 schema 动态渲染，仅展示该模型支持的参数） -->
+      <div class="sidebar-section">
+        <div class="advanced-header" @click="showAdvanced = !showAdvanced">
+          <span>{{ t('aiAudio.showAdvanced') }}</span>
+          <span class="arrow" :class="{ expanded: showAdvanced }">▶</span>
+        </div>
+        <n-collapse-transition :show="showAdvanced">
+          <div v-if="advancedFields.length" class="advanced-body">
+            <div v-for="[field, def] in advancedFields" :key="field" class="param-row">
+              <span class="param-label">{{ advancedLabel(field) }}</span>
+              <n-select
+                v-if="fieldOptions(field, def)"
+                v-model:value="advancedValues[field]"
+                :options="fieldOptions(field, def) || []"
+                size="small"
+                style="width: 130px;"
+                :placeholder="String(def.default ?? '')"
+              />
+              <n-input-number
+                v-else-if="def.type === 'number'"
+                v-model:value="advancedValues[field]"
+                :min="def.min"
+                :max="def.max"
+                size="small"
+                style="width: 130px;"
+              />
+              <n-input
+                v-else
+                v-model:value="advancedValues[field]"
+                size="small"
+                style="width: 130px;"
+              />
+            </div>
+          </div>
+          <p v-else class="ai-audio-hint">{{ t('aiAudio.noAdvancedHint') }}</p>
+        </n-collapse-transition>
       </div>
 
       <!-- 文本输入 -->
@@ -96,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
 import { accountsApi } from '../api/accounts';
@@ -116,42 +156,61 @@ interface GeneratedAudio {
 const selectedAccount = ref('auto');
 const accountOptions = ref<{ label: string; value: string }[]>([]);
 const selectedModel = ref('');
+// 保存完整模型元数据（后端下发的 speakers / default_speaker / advanced_params），供选择说话人与高级设置使用
+const modelMeta = ref<Record<string, { speakers?: string[]; default_speaker?: string; advanced_params?: Record<string, any> }>>({});
 const modelOptions = ref<{ label: string; value: string }[]>([]);
 const modelsLoading = ref(false);
 const inputText = ref('');
-const selectedVoice = ref('luna');
+const selectedVoice = ref('');
 const generating = ref(false);
 const generatedAudios = ref<GeneratedAudio[]>([]);
 const audioRefs = ref<HTMLAudioElement[]>([]);
 
-// CF TTS 支持的说话人列表
-const CF_TTS_SPEAKERS = [
-  'amalthea', 'andromeda', 'apollo', 'arcas', 'aries', 'asteria', 'athena', 'atlas',
-  'aurora', 'callista', 'cora', 'cordelia', 'delia', 'draco', 'electra', 'harmonia',
-  'helena', 'hera', 'hermes', 'hyperion', 'iris', 'janus', 'juno', 'jupiter',
-  'luna', 'mars', 'minerva', 'neptune', 'odysseus', 'ophelia', 'orion', 'orpheus',
-  'pandora', 'phoebe', 'pluto', 'saturn', 'thalia', 'theia', 'vesta', 'zeus',
+// 高级设置面板
+const showAdvanced = ref(false);
+// 高级参数值（按模型 schema 动态生成，key 为 CF 字段名）
+const advancedValues = ref<Record<string, any>>({});
+
+// 当前所选模型支持的说话人列表（取自模型 schema，不同模型完全不同）
+const currentSpeakers = computed<string[]>(() => modelMeta.value[selectedModel.value]?.speakers || []);
+const modelHasSpeaker = computed(() => currentSpeakers.value.length > 0);
+
+// 当前所选模型的高级可选参数（encoding/container/sample_rate/bit_rate/lang 等）
+const currentAdvancedParams = computed<Record<string, any>>(
+  () => modelMeta.value[selectedModel.value]?.advanced_params || {},
+);
+const advancedFields = computed(() => Object.entries(currentAdvancedParams.value));
+
+// 高级参数字段的本地化标签（未知字段回退为字段名）
+function advancedLabel(field: string): string {
+  const localized = t(`aiAudio.param.${field}`);
+  return localized === `aiAudio.param.${field}` ? field : localized;
+}
+
+// lang 字段（melotts 等无枚举的语言参数）常用选项：schema 无 enum 时使用
+const LANG_OPTIONS = [
+  { label: 'English (en)', value: 'en' },
+  { label: '中文 (zh)', value: 'zh' },
+  { label: '日本語 (ja)', value: 'ja' },
+  { label: '한국어 (ko)', value: 'ko' },
+  { label: 'Français (fr)', value: 'fr' },
+  { label: 'Español (es)', value: 'es' },
+  { label: 'Deutsch (de)', value: 'de' },
+  { label: 'Português (pt)', value: 'pt' },
+  { label: 'Русский (ru)', value: 'ru' },
+  { label: 'Italiano (it)', value: 'it' },
 ];
 
-// OpenAI 兼容语音映射
-const VOICE_MAP: Record<string, string> = {
-  alloy: 'luna', echo: 'mars', fable: 'athena', onyx: 'apollo', nova: 'aurora', shimmer: 'iris',
-};
+// 判断高级参数字段的选项来源：优先 schema 枚举，其次 lang 常用语言
+function fieldOptions(field: string, def: any): { label: string; value: string }[] | null {
+  if (Array.isArray(def.enum)) return def.enum.map((v: any) => ({ label: String(v), value: v }));
+  if (field === 'lang') return LANG_OPTIONS;
+  return null;
+}
 
 const voiceOptions = computed(() => {
-  // OpenAI 标准语音 + CF 原生说话人
-  const openaiVoices = [
-    { label: `alloy → ${VOICE_MAP['alloy']}`, value: 'alloy' },
-    { label: `echo → ${VOICE_MAP['echo']}`, value: 'echo' },
-    { label: `fable → ${VOICE_MAP['fable']}`, value: 'fable' },
-    { label: `onyx → ${VOICE_MAP['onyx']}`, value: 'onyx' },
-    { label: `nova → ${VOICE_MAP['nova']}`, value: 'nova' },
-    { label: `shimmer → ${VOICE_MAP['shimmer']}`, value: 'shimmer' },
-  ];
-  const cfSpeakers = CF_TTS_SPEAKERS
-    .filter(s => !Object.values(VOICE_MAP).includes(s))
-    .map(s => ({ label: s, value: s }));
-  return [...openaiVoices, ...cfSpeakers];
+  if (!modelHasSpeaker.value) return [];
+  return currentSpeakers.value.map((s) => ({ label: s, value: s }));
 });
 
 const canGenerate = computed(() => {
@@ -184,13 +243,24 @@ async function fetchModels() {
     const resp = await fetch('/api/v1/models?task=text-to-speech', { headers });
     if (resp.ok) {
       const data = await resp.json();
-      const models = (data.data || []).map((m: any) => ({
-        label: (m.id || m.name || '').replace(/^@cf\//, ''),
-        value: m.id || m.name,
-      }));
+      const models = (data.data || []).map((m: any) => {
+        if (m.id || m.name) {
+          modelMeta.value[m.id || m.name] = {
+            speakers: m.speakers || undefined,
+            default_speaker: m.default_speaker || undefined,
+            advanced_params: m.advanced_params || undefined,
+          };
+        }
+        return {
+          label: (m.id || m.name || '').replace(/^@cf\//, ''),
+          value: m.id || m.name,
+        };
+      });
       modelOptions.value = models;
       if (models.length && !models.find((o: any) => o.value === selectedModel.value)) {
         selectedModel.value = models[0].value;
+        applyDefaultVoice(models[0].value);
+        applyAdvancedDefaults(models[0].value);
       }
     }
   } catch {
@@ -199,6 +269,32 @@ async function fetchModels() {
     modelsLoading.value = false;
   }
 }
+
+// 当所选模型变化时，自动选中该模型默认/首个说话人
+function applyDefaultVoice(modelId: string) {
+  const meta = modelMeta.value[modelId];
+  selectedVoice.value = meta?.default_speaker || meta?.speakers?.[0] || '';
+}
+
+// 按模型高级参数定义重置高级设置值（用 schema default 预填，避免误发未设置字段）
+function applyAdvancedDefaults(modelId: string) {
+  const params = modelMeta.value[modelId]?.advanced_params || {};
+  const next: Record<string, any> = {};
+  for (const [field, def] of Object.entries(params)) {
+    if (def.default !== undefined) next[field] = def.default;
+    else if (def.type === 'number') next[field] = null;
+    else next[field] = '';
+  }
+  advancedValues.value = next;
+}
+
+// 监听模型切换，重置说话人与高级设置
+watch(selectedModel, (id) => {
+  if (id) {
+    applyDefaultVoice(id);
+    applyAdvancedDefaults(id);
+  }
+});
 
 async function generate() {
   if (!canGenerate.value) return;
@@ -211,11 +307,18 @@ async function generate() {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const body = {
+    const body: any = {
       model: selectedModel.value,
       input: currentText,
-      voice: selectedVoice.value,
     };
+    // 仅当该模型支持 speaker 参数且已选择说话人时才下发 voice
+    if (selectedVoice.value) body.voice = selectedVoice.value;
+    // 高级参数：只发送用户显式设置/改动的字段（后端会按模型 schema 白名单过滤）
+    for (const [field] of advancedFields.value) {
+      const v = advancedValues.value[field];
+      if (v === undefined || v === null || v === '') continue;
+      body[field] = v;
+    }
 
     const response = await fetch('/api/v1/audio/speech', {
       method: 'POST',
@@ -292,7 +395,9 @@ onMounted(() => {
 <style scoped>
 .ai-audio-root {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
   overflow: hidden;
 }
 
@@ -315,6 +420,60 @@ onMounted(() => {
 
 .sidebar-select {
   margin-bottom: 4px;
+}
+
+.ai-audio-hint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--app-text-muted);
+}
+
+/* 高级设置 */
+.advanced-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+  user-select: none;
+  padding: 4px 0;
+}
+
+.advanced-header:hover {
+  color: var(--app-text-primary);
+}
+
+.arrow {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.advanced-body {
+  background: var(--app-bg-tertiary);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.param-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.param-label {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  flex: 1;
 }
 
 .sidebar-footer {

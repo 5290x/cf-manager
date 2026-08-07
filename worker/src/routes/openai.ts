@@ -3,6 +3,7 @@ import { stream } from 'hono/streaming';
 import type { Env } from '../types';
 import { setExhausted, incrementQuota, addAuditLog, getActiveAccountsByFeature } from '../db/models';
 import { getAuthHeaders, cfFetchRaw } from '../services/cfApi';
+import { getModelInputSchema, extractTtsAdvancedParams, buildTtsCfBody } from '../services/aiService';
 import { selectBestAccount, invalidateAiCache, clearOptimistic } from '../services/quotaTracker';
 import { estimateNeurons, estimateImageNeurons, estimateTtsNeurons, estimateTranslationNeurons } from '../services/pricing';
 import { getRequestId } from '../middleware/requestId';
@@ -213,13 +214,37 @@ app.get('/models', async (c) => {
     });
   }
 
-  const data = models.map((m: any) => ({
-    id: m.name || m.id,
-    object: 'model',
-    created: Math.floor(Date.now() / 1000),
-    owned_by: 'cloudflare',
-    task: m.task?.name || m.task || undefined,
-  }));
+  // TTS 模型：一次性获取模型 schema，下发 speaker 枚举与高级可选参数
+  let ttsModelMeta: Record<string, { speakers?: string[]; default_speaker?: string; advanced_params?: Record<string, any> }> = {};
+  if (taskFilter && taskFilter.toLowerCase().replace(/-/g, ' ').includes('text to speech')) {
+    await Promise.all(models.map(async (m: any) => {
+      const modelId = m.name || m.id;
+      if (!modelId) return;
+      const schema = await getModelInputSchema(account, modelId, c.env.ENCRYPTION_KEY);
+      if (!schema) return;
+      const speakerProp = schema.properties?.speaker;
+      ttsModelMeta[modelId] = {
+        speakers: Array.isArray(speakerProp?.enum) ? speakerProp.enum : [],
+        default_speaker: speakerProp?.default,
+        advanced_params: extractTtsAdvancedParams(schema),
+      };
+    }));
+  }
+
+  const data = models.map((m: any) => {
+    const modelId = m.name || m.id;
+    const meta = ttsModelMeta[modelId] || {};
+    return {
+      id: modelId,
+      object: 'model',
+      created: Math.floor(Date.now() / 1000),
+      owned_by: 'cloudflare',
+      task: m.task?.name || m.task || undefined,
+      speakers: meta.speakers || undefined,
+      default_speaker: meta.default_speaker || undefined,
+      advanced_params: meta.advanced_params || undefined,
+    };
+  });
   return c.json({ object: 'list', data });
 });
 
@@ -698,20 +723,16 @@ app.post('/images/generations', async (c) => {
 // ================================================================
 // POST /audio/speech — 文生语音 TTS（OpenAI-compatible）
 // ================================================================
-const CF_TTS_SPEAKERS = [
-  'amalthea', 'andromeda', 'apollo', 'arcas', 'aries', 'asteria', 'athena', 'atlas',
-  'aurora', 'callista', 'cora', 'cordelia', 'delia', 'draco', 'electra', 'harmonia',
-  'helena', 'hera', 'hermes', 'hyperion', 'iris', 'janus', 'juno', 'jupiter',
-  'luna', 'mars', 'minerva', 'neptune', 'odysseus', 'ophelia', 'orion', 'orpheus',
-  'pandora', 'phoebe', 'pluto', 'saturn', 'thalia', 'theia', 'vesta', 'zeus',
-];
+// 注意：不同 TTS 模型的 speaker 枚举完全不同（如 aura-2-en 38 个希腊名、aura-2-es 10 个西/意名、
+// aura-1 12 个、melotts 无 speaker 参数），因此不能写死全局列表，须由 getModelSpeakerEnum 动态获取。
+// VOICE_MAP 仅作为 OpenAI 音色名 → CF speaker 的备选映射，最终仍以模型 schema 枚举为准。
 const VOICE_MAP: Record<string, string> = {
   alloy: 'luna', echo: 'mars', fable: 'athena', onyx: 'apollo', nova: 'aurora', shimmer: 'iris',
 };
 
 app.post('/audio/speech', async (c) => {
   const specifiedAccountId = c.req.header('X-Account-ID');
-  const { model, input, voice } = await c.req.json();
+  const { model, input, voice, encoding, container, sample_rate, bit_rate, lang } = await c.req.json();
   const rid = getRequestId(c);
   const env = c.env;
 
@@ -720,10 +741,6 @@ app.post('/audio/speech', async (c) => {
       error: { message: 'model and input are required', type: 'invalid_request_error', code: 'bad_request' },
     }, 400);
   }
-
-  // 映射 voice → CF speaker
-  const speaker = CF_TTS_SPEAKERS.includes(voice) ? voice : (VOICE_MAP[voice] || 'luna');
-  const cfBody = { text: input, speaker, encoding: 'mp3' };
 
   /** 从 CF 错误响应中提取可读的错误消息 */
   const extractCfError = (raw: string): string => {
@@ -736,19 +753,82 @@ app.post('/audio/speech', async (c) => {
     return raw;
   };
 
-  /** 处理 TTS 成功响应 — 返回二进制音频 */
-  async function handleTtsSuccess(account: any, cfResp: Response): Promise<Response> {
-    const contentType = cfResp.headers.get('content-type') || 'audio/mpeg';
-    const arrayBuffer = await cfResp.arrayBuffer();
-    const audioBuffer = new Uint8Array(arrayBuffer);
+  /** 按模型 schema 动态构造 CF 请求体（melotts 用 prompt+lang，aura 系列用 text+speaker+encoding） */
+  let resolvedSpeaker: string | undefined;
+  const buildTtsBody = async (account: any): Promise<Record<string, any>> => {
+    const inputSchema = await getModelInputSchema(account, model, env.ENCRYPTION_KEY);
+    const { body, speaker } = buildTtsCfBody(inputSchema, input, voice, VOICE_MAP, {
+      encoding,
+      container,
+      sample_rate,
+      bit_rate,
+      lang,
+    });
+    resolvedSpeaker = speaker;
+    return body;
+  };
 
-    // 转为 base64
-    let binary = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < audioBuffer.length; i += chunkSize) {
-      binary += String.fromCharCode(...audioBuffer.subarray(i, i + chunkSize));
+  /** 处理 TTS 成功响应 — 返回二进制音频（兼容 JSON base64 响应） */
+  async function handleTtsSuccess(account: any, cfResp: Response): Promise<Response> {
+    const rawContentType = cfResp.headers.get('content-type') || 'audio/mpeg';
+    const arrayBuffer = await cfResp.arrayBuffer();
+
+    const toBase64 = (buf: ArrayBuffer): string => {
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    };
+
+    let b64Audio = '';
+    let audioContentType = rawContentType;
+
+    if (rawContentType.includes('json')) {
+      // melotts 等模型可能返回 JSON { audio: "base64..." } 或被 SDK 解包后的结构
+      const text = new TextDecoder().decode(arrayBuffer);
+      try {
+        const json = JSON.parse(text);
+        const findBase64 = (obj: any, depth = 0): string => {
+          if (depth > 5 || obj == null) return '';
+          if (typeof obj === 'string') {
+            return obj.length > 100 && /^[A-Za-z0-9+/=]+$/.test(obj) ? obj : '';
+          }
+          if (typeof obj !== 'object') return '';
+          if (typeof obj.audio === 'string' && obj.audio.length > 50) return obj.audio;
+          for (const v of Object.values(obj)) {
+            const r = findBase64(v, depth + 1);
+            if (r) return r;
+          }
+          return '';
+        };
+        b64Audio = findBase64(json);
+      } catch {
+        b64Audio = toBase64(new TextEncoder().encode(text).buffer);
+        audioContentType = 'audio/mpeg';
+      }
+    } else {
+      b64Audio = toBase64(arrayBuffer);
     }
-    const b64Audio = btoa(binary);
+
+    // 音频为空：明确返回 502 错误，避免前端拿到空 data URL 播放 0s
+    if (!b64Audio) {
+      logger.warn(`[AI TTS][${rid}] ${model} 返回空音频 (content-type=${rawContentType}, bytes=${arrayBuffer.byteLength})`);
+      return c.json({
+        error: {
+          message: `TTS 模型未返回音频数据（content-type=${rawContentType}, bytes=${arrayBuffer.byteLength}）`,
+          type: 'upstream_error',
+          code: 'EMPTY_AUDIO',
+        },
+      }, 502);
+    }
+
+    // 仅保留音频 MIME
+    if (!audioContentType.startsWith('audio/')) {
+      audioContentType = 'audio/mpeg';
+    }
 
     // 估算神经元消耗
     const neurons = estimateTtsNeurons(input, model);
@@ -758,14 +838,14 @@ app.post('/audio/speech', async (c) => {
     try {
       await addAuditLog(env.DB, {
         account_id: account.id, action: 'ai_tts_generation', target: model,
-        detail: `[${rid}] chars=${input.length} speaker=${speaker} neurons=${neurons}`,
+        detail: `[${rid}] chars=${input.length} speaker=${resolvedSpeaker || 'n/a'} neurons=${neurons}`,
         status: 'success',
       });
     } catch {}
 
     return c.json({
       created: Math.floor(Date.now() / 1000),
-      data: [{ audio: b64Audio, neurons, content_type: contentType }],
+      data: [{ audio: b64Audio, neurons, content_type: audioContentType }],
     });
   }
 
@@ -781,6 +861,7 @@ app.post('/audio/speech', async (c) => {
 
     const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${specified.account_id}/ai/run/${model}`;
     const authHeaders = await getAuthHeaders(specified, env.ENCRYPTION_KEY);
+    const cfBody = await buildTtsBody(specified);
     let cfResp: Response;
     try {
       const controller = new AbortController();
@@ -819,6 +900,7 @@ app.post('/audio/speech', async (c) => {
 
     const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${account.account_id}/ai/run/${model}`;
     const authHeaders = await getAuthHeaders(account, env.ENCRYPTION_KEY);
+    const cfBody = await buildTtsBody(account);
     let cfResp: Response;
     try {
       const controller = new AbortController();
@@ -872,11 +954,11 @@ app.post('/translations', async (c) => {
     }, 400);
   }
 
-  const prompt = source_lang
-    ? `Translate the following text from ${source_lang} to ${target_lang}:\n\n${text}`
-    : `Translate the following text to ${target_lang}:\n\n${text}`;
-
-  const cfBody = { text: prompt };
+  // 根据模型构建不同的 CF 请求体
+  const isIndicTrans2 = model.includes('indictrans2');
+  const cfBody: Record<string, any> = isIndicTrans2
+    ? { text, target_language: target_lang }           // IndicTrans2: { text, target_language }
+    : { text, source_lang: source_lang || 'en', target_lang }; // M2M100: { text, source_lang, target_lang }
 
   const extractCfError = (raw: string): string => {
     try {
@@ -890,7 +972,9 @@ app.post('/translations', async (c) => {
 
   const handleTranslationSuccess = async (account: any, cfResp: Response): Promise<Response> => {
     const json = await cfResp.json() as any;
-    const translatedText = json?.result?.translated_text || json?.result?.output || json?.translated_text || '';
+    const translatedText = isIndicTrans2
+      ? (json?.result?.translations?.[0] || '')
+      : (json?.result?.translated_text || json?.result?.output || json?.translated_text || '');
 
     if (!translatedText) {
       logger.error('openai', `[AI Translation][${rid}] CF returned empty translation`);

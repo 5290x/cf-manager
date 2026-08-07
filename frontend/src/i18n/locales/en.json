@@ -69,7 +69,7 @@
     "dns": "DNS",
     "workers": "Workers",
     "storage": "Storage",
-    "ai": "AI Inference",
+    "ai": "AI Workspace",
     "aiImage": "AI Image",
     "browserRender": "Browser Rendering",
     "store": "Template Store",
@@ -435,7 +435,7 @@
     }
   },
   "ai": {
-    "title": "AI Inference",
+    "title": "AI Workspace",
     "welcome": "How can I help you?",
     "account": "Account",
     "selectModel": "Select model",
@@ -506,6 +506,17 @@
     "title": "AI Text-to-Speech",
     "selectModel": "Select model",
     "selectVoice": "Select voice",
+    "noSpeaker": "This model has no voice selection",
+    "noSpeakerHint": "The selected model has no speaker parameter; it will use its default voice.",
+    "showAdvanced": "Advanced",
+    "noAdvancedHint": "This model has no additional parameters.",
+    "param": {
+      "encoding": "Encoding",
+      "container": "Container",
+      "sample_rate": "Sample Rate",
+      "bit_rate": "Bit Rate",
+      "lang": "Language"
+    },
     "textPlaceholder": "Enter text to synthesize...",
     "generate": "Generate",
     "generating": "Generating audio...",

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { getAllAccounts, getAccountById, getAccountByEmail, nameFromEmail, createAccount, updateAccount, deleteAccount, addAuditLog, listAccountsPaged, AccountListFilter, clearExhausted } from '../db/models';
-import { encrypt } from '../services/encryption';
+import { encrypt, decrypt } from '../services/encryption';
 import { probeAvailableFeatures } from '../services/accountProbe';
 import { cfFetch } from '../services/cfApi';
 import { getQuotaSummary } from '../services/quotaTracker';
@@ -297,6 +297,41 @@ app.post('/:id/clear-exhausted', async (c) => {
   await clearExhausted(db, id, 'ai_neurons');
   try { await addAuditLog(db, { account_id: id, action: 'clear_exhausted', target: account.name, detail: 'ai_neurons', status: 'success' }); } catch {}
   return c.json({ success: true, message: '已清除 AI 配额耗尽标记' });
+});
+
+// ============ 查看账号凭证（解密后的 apiKey / apiToken） ============
+app.get('/:id/credentials', async (c) => {
+  const db = c.env.DB;
+  const id = parseInt(c.req.param('id'), 10);
+  if (isDemoAccount(id, c.env.DEMO_ACCOUNT_IDS)) {
+    return c.json({ error: { code: 'DEMO_PROTECTED', message: '演示账户不可查看凭证' } }, 403);
+  }
+  const account = await getAccountById(db, id);
+  if (!account) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Account not found' } }, 404);
+  }
+  let api_token: string | null = null;
+  let api_key: string | null = null;
+  try {
+    if (account.api_token) api_token = await decrypt(account.api_token, c.env.ENCRYPTION_KEY);
+    if (account.api_key) api_key = await decrypt(account.api_key, c.env.ENCRYPTION_KEY);
+  } catch {
+    return c.json({ error: { code: 'DECRYPT_ERROR', message: '凭证解密失败' } }, 500);
+  }
+  try {
+    await addAuditLog(db, { account_id: id, action: 'view_credentials', target: account.name, detail: account.auth_type, status: 'success' });
+  } catch {}
+  return c.json({
+    id: account.id,
+    name: account.name,
+    auth_type: account.auth_type,
+    email: account.email,
+    api_token,
+    api_key,
+    account_id: account.account_id,
+    proxy_url: account.proxy_url || '',
+    proxy_enabled: account.proxy_enabled || 0,
+  });
 });
 
 // ============ 批量测试 ============

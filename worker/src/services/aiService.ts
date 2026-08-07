@@ -1,7 +1,6 @@
-import { Account } from '../models/account';
-import { getCfClient, getAuthHeaders } from './cfFactory';
-import { proxyFetch, buildCurlCommand } from './proxyService';
-import { appLogger } from './logger';
+import type { Account } from '../db/models';
+import { cfFetch } from './cfApi';
+import { logger } from './logger';
 
 /**
  * 缓存每个 TTS 模型的 input schema（含 properties 与 required）。
@@ -24,10 +23,14 @@ const inputSchemaCache = new Map<string, InputSchemaCache>();
 const SCHEMA_TTL_MS = 1000 * 60 * 60; // 1 小时
 
 /**
- * 获取指定模型的 input schema（取自 CF 模型 schema 的 input 部分）。
- * 获取失败或非对象时返回 null。
+ * 获取指定模型的 input schema。
+ * CF REST API 返回 { result: { input, output } }，因此需从 result.input 读取。
  */
-export async function getModelInputSchema(account: Account, model: string): Promise<ModelInputSchema | null> {
+export async function getModelInputSchema(
+  account: Account,
+  model: string,
+  encryptionKey: string,
+): Promise<ModelInputSchema | null> {
   if (!account.account_id || !model) return null;
   const key = `${account.account_id}::${model}`;
   const cached = inputSchemaCache.get(key);
@@ -37,9 +40,12 @@ export async function getModelInputSchema(account: Account, model: string): Prom
 
   let result: ModelInputSchema | null = null;
   try {
-    const cfAny = getCfClient(account) as any;
-    const schema = await cfAny.ai.models.schema.get({ account_id: account.account_id, model });
-    const input = (schema as any)?.input;
+    const json = await cfFetch<{ result?: { input?: { properties?: Record<string, any>; required?: string[] } } }>(
+      account,
+      `/accounts/${account.account_id}/ai/models/schema?model=${encodeURIComponent(model)}`,
+      encryptionKey,
+    );
+    const input = json?.result?.input;
     if (input && typeof input === 'object') {
       result = {
         properties: input.properties || {},
@@ -47,7 +53,7 @@ export async function getModelInputSchema(account: Account, model: string): Prom
       };
     }
   } catch (err: any) {
-    appLogger.warn(`[AI ModelSchema] 获取模型 ${model} 的 input schema 失败: ${err?.message || err}`);
+    logger.warn(`[AI ModelSchema] 获取模型 ${model} 的 input schema 失败: ${err?.message || err}`);
   }
 
   inputSchemaCache.set(key, { schema: result, fetchedAt: Date.now() });
@@ -57,8 +63,12 @@ export async function getModelInputSchema(account: Account, model: string): Prom
 /**
  * 从模型 schema 中提取 speaker 枚举。非 TTS 模型或 schema 中无 speaker 参数时返回 null。
  */
-export async function getModelSpeakerEnum(account: Account, model: string): Promise<{ speakers: string[]; defaultSpeaker?: string } | null> {
-  const schema = await getModelInputSchema(account, model);
+export async function getModelSpeakerEnum(
+  account: Account,
+  model: string,
+  encryptionKey: string,
+): Promise<{ speakers: string[]; defaultSpeaker?: string } | null> {
+  const schema = await getModelInputSchema(account, model, encryptionKey);
   const speakerProp = schema?.properties?.speaker;
   if (speakerProp && Array.isArray(speakerProp.enum)) {
     return { speakers: speakerProp.enum, defaultSpeaker: speakerProp.default };
@@ -190,116 +200,4 @@ export function buildTtsCfBody(
   }
 
   return { body, speaker };
-}
-
-export async function getAvailableModels(account: Account, taskFilter?: string): Promise<any[]> {
-  if (!account.account_id) {
-    throw new Error(`账户 "${account.name}" 缺少 Cloudflare Account ID，请点击"测试连接"以获取`);
-  }
-  const cfAny = getCfClient(account) as any;
-  const models: any[] = [];
-  let count = 0;
-  for await (const model of cfAny.ai.models.list({ account_id: account.account_id })) {
-    const m = model as any;
-    // Log first model structure for debugging
-    if (count === 0) {
-      appLogger.debug(`[AI Models] Sample model structure: ${JSON.stringify(m, null, 2).slice(0, 500)}`);
-    }
-    count++;
-    // 如果指定了任务过滤，只返回匹配的模型
-    if (taskFilter) {
-      const taskName = m.task?.name || m.task || '';
-      // Normalize: convert both to lowercase and replace hyphens with spaces for matching
-      // e.g., "text-generation" matches "Text Generation"
-      const normalizedTaskName = taskName.toLowerCase().replace(/-/g, ' ');
-      const normalizedFilter = taskFilter.toLowerCase().replace(/-/g, ' ');
-      if (!normalizedTaskName.includes(normalizedFilter)) continue;
-    }
-    models.push(m);
-  }
-  appLogger.debug(`[AI Models] Total: ${count}, Filtered (${taskFilter}): ${models.length}`);
-  return models;
-}
-
-export interface AiUsage {
-  totalNeurons: number;
-  models: Array<{ modelId: string; neurons: number; requests: number }>;
-}
-
-export async function getAiUsageToday(account: Account): Promise<AiUsage> {
-  const accountId = account.account_id;
-  if (!accountId) throw new Error(`AI usage: account "${account.name}" missing account_id`);
-
-  const now = new Date();
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-  const todayEnd = now.toISOString();
-
-  const query = `
-    query CfAiUsage($accountTag: string!, $start: Time!, $end: Time!) {
-      viewer {
-        accounts(filter: {accountTag: $accountTag}) {
-          total: aiInferenceAdaptiveGroups(
-            filter: { datetime_geq: $start, datetime_leq: $end }
-            limit: 1
-          ) {
-            sum { totalNeurons }
-          }
-          byModel: aiInferenceAdaptiveGroups(
-            filter: { datetime_geq: $start, datetime_leq: $end }
-            limit: 100
-            orderBy: [sum_totalNeurons_DESC]
-          ) {
-            count
-            sum { totalNeurons }
-            dimensions { modelId }
-          }
-        }
-      }
-    }
-  `;
-
-  const headers = getAuthHeaders(account);
-  const fetchUrl = 'https://api.cloudflare.com/client/v4/graphql';
-  const fetchInit = {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      query,
-      variables: { accountTag: accountId, start: todayStart, end: todayEnd },
-    }),
-  };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  let resp;
-  try {
-    resp = await proxyFetch(fetchUrl, { ...fetchInit, signal: controller.signal }, 300000, undefined, account);
-  } catch (e) {
-    appLogger.error(`[AI Usage] Fetch failed for ${account.name}: ${e}\n[DEBUG curl] ${buildCurlCommand(fetchUrl, fetchInit)}`);
-    throw new Error(`AI usage fetch failed for ${account.name}: ${e}`);
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!resp.ok) throw new Error(`AI usage HTTP ${resp.status} for ${account.name}`);
-
-  const json = await resp.json() as any;
-  if (json.errors) {
-    appLogger.error(`[GraphQL] AI usage errors: ${JSON.stringify(json.errors)}`);
-    throw new Error(`GraphQL errors for ${account.name}: ${JSON.stringify(json.errors)}`);
-  }
-
-  const acct = json?.data?.viewer?.accounts?.[0];
-  const totalRecs = acct?.total || [];
-  const modelRecs = acct?.byModel || [];
-
-  const totalNeurons = totalRecs[0]?.sum?.totalNeurons || 0;
-  const models = modelRecs
-    .filter((r: any) => r.dimensions?.modelId)
-    .map((r: any) => ({
-      modelId: r.dimensions.modelId,
-      neurons: r.sum?.totalNeurons || 0,
-      requests: r.count || 0,
-    }));
-
-  return { totalNeurons: Math.round(totalNeurons), models };
 }
