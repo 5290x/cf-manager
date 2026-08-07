@@ -396,14 +396,38 @@ const allDomains = computed(() =>
 );
 
 const filteredDomains = computed(() => {
-  if (!searchQuery.value) return allDomains.value;
-  const q = searchQuery.value.toLowerCase();
-  return allDomains.value.filter((d: any) => d.name?.toLowerCase().includes(q));
+  let list = allDomains.value;
+  // 账户筛选：选中具体账户时按账户名过滤
+  if (selectedAccount.value && selectedAccount.value !== '__all__') {
+    const opt = accountOptions.value.find(o => o.value === selectedAccount.value);
+    if (opt) {
+      list = list.filter((d: any) => d.accountName === opt.label);
+    }
+  }
+  // 域名搜索过滤
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase();
+    list = list.filter((d: any) => d.name?.toLowerCase().includes(q));
+  }
+  return list;
 });
 
 const groupedDomains = computed(() => {
+  let list = allDomains.value;
+  // 账户筛选：选中具体账户时仅保留该账户的域名
+  if (selectedAccount.value && selectedAccount.value !== '__all__') {
+    const opt = accountOptions.value.find(o => o.value === selectedAccount.value);
+    if (opt) {
+      list = list.filter((d: any) => d.accountName === opt.label);
+    }
+  }
+  // 域名搜索过滤
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase();
+    list = list.filter((d: any) => d.name?.toLowerCase().includes(q));
+  }
   const groups: Record<string, any[]> = {};
-  for (const d of filteredDomains.value) {
+  for (const d of list) {
     const key = d.accountName || 'Unknown';
     if (!groups[key]) groups[key] = [];
     groups[key].push(d);

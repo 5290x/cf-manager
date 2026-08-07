@@ -40,15 +40,16 @@
 |---|---|
 | **多账户管理** | API Token / Global API Key 双认证 · 凭证 AES 加密 · 多账户统一切换 ([认证文档](docs/account-auth.md)) |
 | **仪表盘** | 各账户配额用量实时展示（Workers、AI、渲染）· 可视化进度条 · 操作审计 |
-| **Workers / Pages** | 脚本/项目 CRUD · 单/跨账户批量部署 · 绑定/环境变量/路由/自定义域名 · Pages 回滚 |
-| **DNS 管理** | A/AAAA/CNAME/MX/TXT 记录管理 · 一键代理开关 · 批量操作 |
+| **Workers / Pages** | 脚本/项目 CRUD · 单/跨账户批量部署 · 环境变量/绑定/路由/自定义域名 · 仅更新配置的重部署 · Pages 回滚 |
+| **DNS 管理** | A/AAAA/CNAME/MX/TXT 记录管理 · Zone 批量创建/删除 · Zone 设置（SSL/缓存/安全）· Zone 缓存清除 · Zone 暂停/激活 |
 | **隧道管理** | Tunnel 创建/删除 · Ingress 可视化编辑（域名↔服务映射）· 一键回源向导（DNS CNAME + ingress 自动配置） |
 | **规则引擎** | 8 种规则类型（回源、URL 重写、请求/响应头转换、缓存、防火墙、限速、重定向）· 结构化表单+高级模式 · 表达式生成器 |
 | **存储管理** | KV 键值 CRUD · D1 数据库 SQL 查询 + 表结构变更 · R2 文件上传/下载/预览 |
-| **AI 推理** | Workers AI 全模型 · Prompt Caching 感知计费 · 流式对话 + Reasoning 可视化 · 历史上下文 · 多账户调度 |
+| **AI 工作台** | 统一 AI 控制台 — 对话 / 文生图与图生图 / 语音合成 / 翻译 + 账户用量统计 · Prompt Caching 感知计费 · 流式响应 · 历史上下文 · 多账户调度 |
 | **浏览器渲染** | 截图 / HTML / Markdown / PDF / 链接提取 5 种模式 · 限速+配额管理 · SSRF 防护 |
-| **OpenAI 兼容 API** | `/v1/chat/completions`、`/v1/models`、浏览器渲染接口 · 流式+非流式 · 仅限内网本地调试 ([API 文档](docs/api-v1.md)) |
+| **OpenAI 兼容 API** | `/v1/chat/completions`、`/v1/images/generations`、`/v1/audio/speech`、`/v1/translations`、`/v1/models` · 流式+非流式 · 仅限内网本地调试 ([API 文档](docs/api-v1.md)) |
 | **应用商店** | 内置 Catalog 模板市场 · 第三方源扩展 · 一键部署 Workers/Pages |
+| **国际化** | 内置 zh-CN / en 双语界面（vue-i18n，1000+ 词条）· 自动检测浏览器语言 · 选择持久化 |
 | **系统设置** | HTTP/SOCKS5 代理 · Resin 代理池（每账户 sticky IP）· 缓存清除 · 定时任务扩展 |
 | **安全特性** | API Token AES 加密 · 可选登录密码 · `/admin/` 路径隐藏 + nginx 伪装 · 审计日志 |
 
@@ -198,11 +199,12 @@ npm run dev
 
 ```
 cf-manager/
-├── backend/                 # 后端 API 服务
+├── backend/                 # 后端 API 服务（Express）
 │   └── src/
 │       ├── index.ts         # Express 入口
 │       ├── config.ts        # 配置
 │       ├── db.ts            # SQLite 数据库
+│       ├── data/            # 运行时数据（从 shared/ 自动同步）
 │       ├── middleware/      # 认证、错误处理、响应包装
 │       ├── models/          # 数据模型
 │       ├── routes/          # API 路由
@@ -210,24 +212,40 @@ cf-manager/
 ├── frontend/                # 前端 Vue 应用
 │   └── src/
 │       ├── api/             # API 调用封装
-│       ├── views/           # 页面组件
+│       ├── assets/          # 静态资源
 │       ├── components/      # 可复用组件（StoreDeployDialog 等）
+│       ├── i18n/            # 国际化语言包（zh-CN / en）
+│       ├── router/          # Vue Router 路由配置
 │       ├── stores/          # Pinia 状态管理
-│       └── utils/           # 工具函数
-├── worker/                  # Cloudflare Pages 部署版
-│   ├── src/                 # Hono API 路由 + D1 模型
+│       ├── types/           # TypeScript 类型定义
+│       ├── utils/           # 工具函数
+│       └── views/           # 页面组件
+├── worker/                  # Cloudflare Pages 部署版（Hono）
+│   ├── src/
+│   │   ├── index.ts         # Hono 入口 + Pages Functions handler
+│   │   ├── types.ts         # Env 接口（D1、KV、ASSETS）
+│   │   ├── pages/           # 伪装 nginx 页面
+│   │   ├── routes/          # API 路由（与 backend 对称）
+│   │   ├── services/        # 业务逻辑（fetch 调用 CF API）
+│   │   ├── db/              # D1 模型 + schema.sql / migrations.sql
+│   │   └── middleware/      # 认证、错误处理、响应包装
 │   ├── build.js             # 一键构建脚本
 │   └── wrangler.toml        # Wrangler 配置
+├── scripts/                 # 构建辅助脚本
+│   ├── sync-shared.js       # 将 shared/ 同步到 backend 和 worker
+│   ├── gen-version.js       # 从 CHANGELOG.md 生成 version.ts
+│   └── gen-catalog-validator.js  # 预编译 AJV 校验器（兼容 Workers）
 ├── docker/                  # Docker 构建配置（单容器 all-in-one）
 │   └── Dockerfile            # 多阶段构建：前端编译 + 后端编译 + 生产镜像
-├── shared/                  # 前后端共享配置
+├── shared/                  # 前后端共享唯一来源（自动同步）
 │   ├── model-pricing.json    # AI 模型定价（含缓存价格）
 │   ├── catalog.schema.json   # Catalog 模板 JSON Schema
 │   └── catalogValidator.ts   # Catalog 校验器源码
 ├── docs/                    # 文档
 │   ├── api-v1.md            # 外部 API 接口文档
 │   ├── account-auth.md      # 账户认证方式说明
-│   └── deploy.md            # 部署文档
+│   ├── deploy.md            # 部署文档
+│   └── cf-manager-analysis.md  # 项目分析报告
 ├── docker-compose.yml
 ├── deploy.sh                # 一键部署脚本
 ├── CHANGELOG.md             # 更新日志
@@ -247,16 +265,26 @@ cf-manager/
   <tr>
     <td><img src="images/dns.png" alt="DNS 管理"><br><em>DNS 管理</em></td>
     <td><img src="images/storage.png" alt="存储管理"><br><em>存储管理（KV / D1 / R2）</em></td>
-    <td><img src="images/ai.png" alt="AI 推理"><br><em>AI 推理</em></td>
-  </tr>
-  <tr>
     <td><img src="images/browser-render.png" alt="浏览器渲染"><br><em>浏览器渲染</em></td>
-    <td><img src="images/settings.png" alt="系统设置"><br><em>系统设置</em></td>
-    <td><img src="images/store.png" alt="应用商店"><br><em>应用商店</em></td>
   </tr>
   <tr>
+    <td><img src="images/store.png" alt="应用商店"><br><em>应用商店</em></td>
+    <td><img src="images/settings.png" alt="系统设置"><br><em>系统设置（含 Resin 代理池）</em></td>
     <td><img src="images/tunnels.png" alt="隧道管理"><br><em>隧道管理</em></td>
+  </tr>
+  <tr>
     <td><img src="images/rules-engine.png" alt="规则引擎"><br><em>规则引擎</em></td>
+    <td><img src="images/deploy-config.png" alt="部署配置"><br><em>部署配置（环境变量/绑定）</em></td>
+    <td><img src="images/ai-chat.png" alt="AI 对话"><br><em>AI 对话</em></td>
+  </tr>
+  <tr>
+    <td><img src="images/ai-image.png" alt="AI 绘图"><br><em>AI 绘图</em></td>
+    <td><img src="images/ai-audio.png" alt="AI 语音合成"><br><em>AI 语音合成</em></td>
+    <td><img src="images/ai-translation.png" alt="AI 翻译"><br><em>AI 翻译</em></td>
+  </tr>
+  <tr>
+    <td><img src="images/ai-stats.png" alt="AI 用量统计"><br><em>AI 用量统计</em></td>
+    <td></td>
     <td></td>
   </tr>
 </table>

@@ -40,15 +40,16 @@
 |---|---|
 | **Multi-account Management** | API Token / Global API Key dual auth · AES-encrypted credentials · unified account switching ([auth docs](docs/account-auth.md)) |
 | **Dashboard** | Real-time quota usage per account (Workers, AI, Rendering) · visual progress bars · operation audit |
-| **Workers / Pages** | Script/Project CRUD · single/cross-account batch deployment · bindings/env vars/routes/custom domains · Pages rollback |
-| **DNS Management** | A/AAAA/CNAME/MX/TXT record management · one-click proxy toggle · bulk operations |
+| **Workers / Pages** | Script/Project CRUD · single/cross-account batch deployment · env vars / bindings / routes / custom domains · config-only redeploy · Pages rollback |
+| **DNS Management** | A/AAAA/CNAME/MX/TXT record management · Zone batch create/delete · Zone settings (SSL/cache/security) · Zone cache purge · Zone pause/resume |
 | **Tunnel Management** | Tunnel create/delete · visual Ingress editor (domain↔service mapping) · one-click origin wizard (DNS CNAME + auto Ingress config) |
 | **Rules Engine** | 8 rule types (origin, URL rewrite, request/response header transform, cache, firewall, rate limit, redirect) · structured form + advanced mode · expression builder |
 | **Storage Management** | KV key-value CRUD · D1 SQL query + schema changes · R2 file upload/download/preview |
-| **AI Inference** | Full Workers AI models · Prompt Caching-aware billing · streaming chat + reasoning visualization · conversation history · multi-account scheduling |
+| **AI Workspace** | Unified AI console — chat / image generation (T2I & I2I) / TTS / translation + per-account usage stats · Prompt Caching-aware billing · streaming responses · conversation history · multi-account scheduling |
 | **Browser Rendering** | 5 modes: screenshot / HTML / Markdown / PDF / link extraction · rate limit + quota management · SSRF protection |
-| **OpenAI-compatible API** | `/v1/chat/completions`, `/v1/models`, browser rendering endpoints · streaming + non-streaming · local/internal only ([API docs](docs/api-v1.md)) |
+| **OpenAI-compatible API** | `/v1/chat/completions`, `/v1/images/generations`, `/v1/audio/speech`, `/v1/translations`, `/v1/models` · streaming + non-streaming · local/internal only ([API docs](docs/api-v1.md)) |
 | **App Store** | Built-in Catalog template marketplace · third-party source extension · one-click Workers/Pages deployment |
+| **Internationalization** | Built-in zh-CN / en UI (vue-i18n, 1000+ keys) · auto-detect browser language · persistent choice |
 | **System Settings** | HTTP/SOCKS5 proxy · Resin proxy pool (per-account sticky IP) · cache purge · scheduled task extensions |
 | **Security** | AES-encrypted API Token · optional login password · `/admin/` path hiding + nginx disguise · audit log |
 
@@ -198,11 +199,12 @@ npm run dev
 
 ```
 cf-manager/
-├── backend/                 # Backend API service
+├── backend/                 # Backend API service (Express)
 │   └── src/
 │       ├── index.ts         # Express entry
 │       ├── config.ts        # Config
 │       ├── db.ts            # SQLite database
+│       ├── data/            # Runtime data (auto-synced from shared/)
 │       ├── middleware/      # Auth, error handling, response wrapper
 │       ├── models/          # Data models
 │       ├── routes/          # API routes
@@ -210,24 +212,40 @@ cf-manager/
 ├── frontend/                # Vue frontend app
 │   └── src/
 │       ├── api/             # API call wrappers
-│       ├── views/           # Page components
+│       ├── assets/          # Static assets
 │       ├── components/      # Reusable components (StoreDeployDialog, etc.)
+│       ├── i18n/            # Locale files (zh-CN / en)
+│       ├── router/          # Vue Router config
 │       ├── stores/          # Pinia state management
-│       └── utils/           # Utility functions
-├── worker/                  # Cloudflare Pages deployment
-│   ├── src/                 # Hono API routes + D1 models
+│       ├── types/           # TypeScript types
+│       ├── utils/           # Utility functions
+│       └── views/           # Page components
+├── worker/                  # Cloudflare Pages deployment (Hono)
+│   ├── src/
+│   │   ├── index.ts         # Hono entry + Pages Functions handler
+│   │   ├── types.ts         # Env interface (D1, KV, ASSETS)
+│   │   ├── pages/           # Disguised nginx page
+│   │   ├── routes/          # API routes (mirror of backend)
+│   │   ├── services/        # Business logic (fetch-based CF API)
+│   │   ├── db/              # D1 models + schema.sql / migrations.sql
+│   │   └── middleware/      # Auth, error handling, response wrapper
 │   ├── build.js             # One-click build script
 │   └── wrangler.toml        # Wrangler config
+├── scripts/                 # Build helper scripts
+│   ├── sync-shared.js       # Sync shared/ to backend & worker
+│   ├── gen-version.js       # Generate version.ts from CHANGELOG.md
+│   └── gen-catalog-validator.js  # Precompile AJV validator for Workers
 ├── docker/                  # Docker build config (all-in-one single container)
 │   └── Dockerfile            # Multi-stage: frontend build + backend build + production image
-├── shared/                  # Shared frontend/backend config
+├── shared/                  # Single source of truth (auto-synced)
 │   ├── model-pricing.json    # AI model pricing (incl. cache pricing)
 │   ├── catalog.schema.json   # Catalog template JSON Schema
 │   └── catalogValidator.ts   # Catalog validator source
 ├── docs/                    # Documentation
 │   ├── api-v1.md            # External API docs
 │   ├── account-auth.md      # Account auth docs
-│   └── deploy.md            # Deployment docs
+│   ├── deploy.md            # Deployment docs
+│   └── cf-manager-analysis.md  # Project analysis report
 ├── docker-compose.yml
 ├── deploy.sh                # One-click deploy script
 ├── CHANGELOG.md             # Changelog
@@ -247,16 +265,26 @@ cf-manager/
   <tr>
     <td><img src="images/dns.png" alt="DNS"><br><em>DNS</em></td>
     <td><img src="images/storage.png" alt="Storage"><br><em>Storage (KV / D1 / R2)</em></td>
-    <td><img src="images/ai.png" alt="AI Inference"><br><em>AI Inference</em></td>
-  </tr>
-  <tr>
     <td><img src="images/browser-render.png" alt="Browser Rendering"><br><em>Browser Rendering</em></td>
-    <td><img src="images/settings.png" alt="Settings"><br><em>Settings</em></td>
-    <td><img src="images/store.png" alt="App Store"><br><em>App Store</em></td>
   </tr>
   <tr>
+    <td><img src="images/store.png" alt="App Store"><br><em>App Store</em></td>
+    <td><img src="images/settings.png" alt="Settings"><br><em>Settings (incl. Resin proxy pool)</em></td>
     <td><img src="images/tunnels.png" alt="Tunnels"><br><em>Tunnels</em></td>
+  </tr>
+  <tr>
     <td><img src="images/rules-engine.png" alt="Rules Engine"><br><em>Rules Engine</em></td>
+    <td><img src="images/deploy-config.png" alt="Deploy Config"><br><em>Deploy Config (env / bindings)</em></td>
+    <td><img src="images/ai-chat.png" alt="AI Chat"><br><em>AI Chat</em></td>
+  </tr>
+  <tr>
+    <td><img src="images/ai-image.png" alt="AI Image Generation"><br><em>AI Image Generation</em></td>
+    <td><img src="images/ai-audio.png" alt="AI Text-to-Speech"><br><em>AI Text-to-Speech</em></td>
+    <td><img src="images/ai-translation.png" alt="AI Translation"><br><em>AI Translation</em></td>
+  </tr>
+  <tr>
+    <td><img src="images/ai-stats.png" alt="AI Usage Stats"><br><em>AI Usage Stats</em></td>
+    <td></td>
     <td></td>
   </tr>
 </table>

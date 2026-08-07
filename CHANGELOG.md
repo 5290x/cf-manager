@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.7.0] - 2026-08-07
+## [2.0.0] - 2026-08-07
 
 ### 🚀 新特性
 
@@ -24,28 +24,29 @@
   - AI 统计作为首个 Tab，展示账户维度的用量汇总。
   - 路由 `/ai` 指向统一视图，移除独立的 `/ai-image` 和 `/ai-audio` 路由。
   - 导航菜单精简，AI 相关功能整合为单入口。
-
-### 🐛 Bug 修复
-
-- **AI 翻译 API 修复**：修复翻译模型入参格式错误（M2M100 需要 `{text, source_lang, target_lang}`，IndicTrans2 需要 `{text, target_language}`），旧代码将原文包装成 prompt 指令字符串导致调用失败。
-- **AI 翻译前端修复**：根据模型动态显示不同语言列表（M2M100 多语言 / IndicTrans2 印度语系），语言值改为 CF 语言代码，切换模型自动重置语言，自动检测为默认选中。
-- **AI 统一视图布局修复**：修复所有 AI 子页面高度超出问题（`calc(100vh)` → `flex:1 + min-height:0 + box-sizing:border-box`），`n-tab-pane` 改为 flex 容器。
-- **菜单重命名**：「AI 推理」→「AI 工作台」，更符合当前多功能定位。
-- **菜单排序**：「隧道/回源」菜单移至「AI 工作台」上方。
-- **Worker 端点补全**：Worker 补充 `GET /accounts/:id/credentials`（查看凭证）和 `POST /v1/browser/render` + `GET /v1/browser/status`（外部浏览器渲染）端点，与 backend 对称。
-- **AI 图片生成修复**：修复 `responseWrapper` 错误包装 `/api/v1/images/generations` 响应导致前端解析失败（图片不显示）。
-- **CF API 错误信息提取**：修复 CF API 错误信息未正确提取，前端显示原始 JSON 而非可读错误消息。
-- **Flux 2 multipart 修复**：修复 Flux 2 模型（如 `flux-2-klein-9b`）需要 `multipart/form-data` 格式请求，之前统一用 JSON 导致 `required properties are 'multipart'` 错误。
-- **TTS 请求体 schema 驱动重构**：修复文生语音（`/audio/speech`）对部分 TTS 模型报 `enum X not in ...` 或 `required properties at '/' are 'prompt'` 的 400 错误。不同 TTS 模型的入参完全不同（如 `aura-2-en` 用 `text+speaker+encoding` 且 speaker 为 38 个希腊名、`aura-2-es` 同上但 speaker 仅 10 个西/意名、`aura-1` speaker 仅 12 个、`melotts` 用 `prompt+lang` 且无 `speaker`/`encoding`），原先写死 `{ text, speaker, encoding }` 的请求体只适配 `aura-2-en`。现改为按模型 schema（`/ai/models/schema`）动态构造请求体：只发送 schema 存在的字段、`prompt`/`text` 自动识别、speaker 用枚举校验并兜底、`encoding` 仅在该模型支持 mp3 时设置；模型列表接口为每个 TTS 模型下发 `speakers`/`default_speaker`/`advanced_params`，前端按实际枚举渲染说话人下拉框（无 speaker 的模型禁用），并将 `container`/`sample_rate`/`bit_rate`/`lang` 等可选参数收进"高级设置"折叠面板（按模型 schema 动态渲染，不支持的字段不展示、不提交）。双后端（Express + Hono）对称实现。
+- **前端国际化（i18n）**：引入 vue-i18n，支持中文（zh-CN）与英文（en）双语界面。
+  - 新增 zh-CN / en 两个语言包（各 1052 个词条），自动检测浏览器语言并持久化到 localStorage。
+  - 全站视图与组件的硬编码文案统一替换为 `t()` 国际化调用。
+- **Zone 管理（创建/删除）**：DNS 管理页面新增批量创建和删除 Zone 功能。支持 textarea 每行一个域名批量添加，选择目标账户和 Zone 类型（Full/Partial）；域名列表支持 checkbox 多选后批量删除，二次确认防误操作。创建成功后展示 Cloudflare 分配的 NS 信息，支持一键复制。
+- **Zone 设置管理**：新增 Zone 级别设置面板，支持查看和修改 SSL/TLS 模式、Always HTTPS、自动 HTTPS 重写、安全等级、Auto Minify、Brotli 压缩、0-RTT 等设置项。
+- **Zone 缓存管理**：支持清除 Zone 全部缓存或按 URL 清除缓存，可查看和修改缓存级别、浏览器缓存 TTL、开发模式。
+- **Zone 状态管理**：支持在 CF Manager 中暂停/激活 Zone，暂停前二次确认警告。
+- **DNS View UI 重构**：DNS 管理页面全面重构——新增账户过滤器（默认选上次使用账户，localStorage 记忆）、域名搜索框、Zone 状态指示器（彩色圆点）、按账户分组折叠列表、DNS 记录分页、删除二次确认、MX 记录优先级字段、表单验证、错误处理、加载/空状态、暗色模式修复。
 
 ### 🔧 优化
 
+- **Worker 端点补全**：Worker 补充 `GET /accounts/:id/credentials`（查看凭证）和 `POST /v1/browser/render` + `GET /v1/browser/status`（外部浏览器渲染）端点，与 backend 对称。
+- **菜单优化**：「AI 推理」→「AI 工作台」重命名；「隧道/回源」菜单移至「AI 工作台」上方。
 - **模型能力检测**：基于 CF 官方文档精确识别模型支持的生成模式——Flux 2 支持 image editing（图生图），Flux 1 仅文生图，SDXL 支持图生图。模式切换按钮仅在模型同时支持两种模式时显示。
 - **图生图默认强度**：默认 `strength` 从 1.0 调整为 0.6，保留更多原图特征。
 - **生成中 UX 改进**：生成图片时不再全屏遮罩，改为顶部加载条，用户可同时查看已有图片。
 - **复用功能改进**：点击"复用"时自动切换到图生图模式并使用生成的图片作为参考图（需模型支持）。
 - **用量显示**：每张生成的图片返回并显示神经元消耗（⚡ neurons 徽章）。
 - **组件重命名**：`AiView.vue` 重命名为 `AiChatView.vue`，更清晰地表达其职责。
+- **Workers/Pages 管理 UI 改进**：暗色模式适配（移除硬编码浅色、改用半透明蓝）；间距统一 16px；账户卡片高度/圆角优化；用量详情 Popover 改为 hover 触发；删除后只刷新当前账户；Worker/Pages 状态文案统一（deployed/enabled/active 均显示「活跃」）；表格撑满剩余屏幕高度；底部统计栏显示总数/Worker 数/Pages 数/当前账户名；修改时间缺失时回退显示创建时间。
+- **Worker KV 缓存**：Worker 端 `getAllZones()` 新增 KV 缓存（5 分钟 TTL），与 Backend 的 NodeCache 对齐，减少全量查询时的 CF API 调用。
+- **批量操作并发池**：Zone 批量创建/删除使用并发池（concurrency=3），避免 CF API 速率限制。
+- **缓存自动失效**：创建/删除 Zone 后自动清除 zones 缓存，确保列表数据实时性。
 
 ### 🛠 Workers & Pages 部署增强
 
@@ -62,25 +63,9 @@
 #### 说明
 - 重部署 diff：仅 secrets 变化时只调 secrets API 不重传代码；vars/bindings 变化时后端复用现有代码重传，用户无需再上传文件
 
-## [1.6.0] - 2026-08-06
+### 📝 文档
 
-### 🚀 新特性
-
-- **Zone 管理（创建/删除）**：DNS 管理页面新增批量创建和删除 Zone 功能。支持 textarea 每行一个域名批量添加，选择目标账户和 Zone 类型（Full/Partial）；域名列表支持 checkbox 多选后批量删除，二次确认防误操作。创建成功后展示 Cloudflare 分配的 NS 信息，支持一键复制。
-- **Zone 设置管理**：新增 Zone 级别设置面板，支持查看和修改 SSL/TLS 模式、Always HTTPS、自动 HTTPS 重写、安全等级、Auto Minify、Brotli 压缩、0-RTT 等设置项。
-- **Zone 缓存管理**：支持清除 Zone 全部缓存或按 URL 清除缓存，可查看和修改缓存级别、浏览器缓存 TTL、开发模式。
-- **Zone 状态管理**：支持在 CF Manager 中暂停/激活 Zone，暂停前二次确认警告。
-- **DNS View UI 重构**：DNS 管理页面全面重构——新增账户过滤器（默认选上次使用账户，localStorage 记忆）、域名搜索框、Zone 状态指示器（彩色圆点）、按账户分组折叠列表、DNS 记录分页、删除二次确认、MX 记录优先级字段、表单验证、错误处理、加载/空状态、暗色模式修复。
-
-### 🔧 优化
-
-- **Worker KV 缓存**：Worker 端 `getAllZones()` 新增 KV 缓存（5 分钟 TTL），与 Backend 的 NodeCache 对齐，减少全量查询时的 CF API 调用。
-- **批量操作并发池**：Zone 批量创建/删除使用并发池（concurrency=3），避免 CF API 速率限制。
-- **缓存自动失效**：创建/删除 Zone 后自动清除 zones 缓存，确保列表数据实时性。
-
-### 🐛 Bug 修复
-
-- **修复 Backend getZoneSettings**：`getZoneSettings()` 之前调用 `cf.zones.get()` 返回 Zone 对象而非 Zone 设置，现修正为并行获取所有设置项（SSL、缓存、安全等），与 Worker 端返回格式统一。
+- **项目分析报告**：新增 `docs/cf-manager-analysis.md`，提供项目架构、代码结构、构建部署流程的完整分析文档。
 
 ## [1.5.1] - 2026-08-05
 
