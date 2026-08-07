@@ -561,6 +561,9 @@ function handleEditPagesEnv(row: any) {
 
 async function handleDeletePagesEnv(row: any) {
   try {
+    // CF PATCH deployment_configs.env_vars 是 merge 语义：
+    // - {key: null} → 删除该键（实测确认）
+    // - omit 键 → 保留；空对象 {} → 被 CF 忽略（均无法删除）
     await workersApi.editPagesProject(accountId.value, workerName.value, {
       deployment_configs: {
         production: { env_vars: { [row.name]: null } },
@@ -569,7 +572,7 @@ async function handleDeletePagesEnv(row: any) {
     });
     message.success(t('pagesSettings.msg.varDeleted'));
     loadPagesProject();
-  } catch (e: any) { message.error(e?.message || t('pagesSettings.msg.deleteFailed')); }
+  } catch (e: any) { message.error(e?.errorMessage || e?.message || t('pagesSettings.msg.deleteFailed')); }
 }
 
 async function loadPagesDeployments() {

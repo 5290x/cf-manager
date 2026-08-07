@@ -10,9 +10,9 @@ const app = new Hono<{ Bindings: Env }>();
 const ZONES_CACHE_KEY = 'dns_zones_all';
 const ZONES_CACHE_TTL = 300; // 5 minutes
 
-async function getAllZones(db: D1Database, encryptionKey: string, kv: KVNamespace) {
+async function getAllZones(db: D1Database, encryptionKey: string, kv: KVNamespace): Promise<any[]> {
   const cached = await kv.get(ZONES_CACHE_KEY, 'json');
-  if (cached) return cached;
+  if (cached) return cached as any[];
 
   const accounts = await getActiveAccountsByFeature(db, 'dns');
   const results = await Promise.all(accounts.map(async (account) => {

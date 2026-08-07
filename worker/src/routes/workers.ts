@@ -5,9 +5,11 @@ import { cfFetch, cfFetchRaw, cfFetchAll } from '../services/cfApi';
 import { getWorkersUsageToday } from '../services/quotaTracker';
 import { demoDestructiveGuard } from '../services/demo';
 import { deployPages } from '../services/deploy/pagesDeploy';
-import { extractZipFiles, validatePagesProjectName, ensurePagesProject } from '../services/pagesDeploy';
+import { extractZipFiles, validatePagesProjectName } from '../services/pagesDeploy';
 import { deployWorker } from '../services/assetsDeploy';
 import { fetchScriptSafely } from '../services/ssrfGuard';
+import { varsToBindings, resolveManualBindings, buildPagesConfigsFromInput, ManualVarInput, ManualBindingInput } from '../services/bindings';
+import { getWorkerConfig, getPagesConfig, applyWorkerConfigDiff } from '../services/workerConfig';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -47,75 +49,6 @@ app.get('/', async (c) => {
     return items;
   }));
   return c.json(results.flat());
-});
-
-// ============ Deploy Worker ============
-app.post('/:accountId/workers', async (c) => {
-  const account = await requireAccount(c);
-  const contentType = c.req.header('content-type') || '';
-
-  let name: string;
-  let scriptContent = '';
-  let deploySource = 'upload';
-  let assetsOpts: any;
-  let mainModule: string | undefined;
-  let deployed = false;
-
-  if (contentType.includes('multipart/form-data')) {
-    const formData = await c.req.formData();
-    name = formData.get('name') as string;
-    const url = formData.get('url') as string;
-    const file = formData.get('script') as File | null;
-    const assetsFile = formData.get('assets') as File | null;
-    if (assetsFile) {
-      const buf = new Uint8Array(await assetsFile.arrayBuffer());
-      assetsOpts = { assets: { source: { kind: assetsFile.name.toLowerCase().endsWith('.zip') ? 'zip' : 'raw', url: assetsFile.name }, assetsBuffer: buf } };
-    }
-    mainModule = formData.get('mainModule') as string || undefined;
-    if (!name) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Worker name is required' } }, 400);
-    if (url) {
-      deploySource = `url=${url}`;
-      try {
-        scriptContent = await fetchScriptSafely(url, c.env);
-      } catch (e: any) {
-        const code = e.statusCode === 403 ? 'SSRF_BLOCKED' : 'FETCH_ERROR';
-        return c.json({ error: { code, message: e.message } }, e.statusCode || 400);
-      }
-    } else if (file) {
-      const isZip = file.name.toLowerCase().endsWith('.zip');
-      if (isZip) {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        await deployWorker(account, c.env.ENCRYPTION_KEY, name, new Uint8Array(0), { ...assetsOpts, packageZip: buf, mainModule });
-        deployed = true;
-      } else {
-        scriptContent = await file.text();
-      }
-    } else {
-      return c.json({ error: { code: 'NO_FILE', message: 'Script file or URL is required' } }, 400);
-    }
-  } else {
-    const body = await c.req.json();
-    name = body.name;
-    if (!name) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Worker name is required' } }, 400);
-    if (body.url) {
-      deploySource = `url=${body.url}`;
-      try {
-        scriptContent = await fetchScriptSafely(body.url, c.env);
-      } catch (e: any) {
-        const code = e.statusCode === 403 ? 'SSRF_BLOCKED' : 'FETCH_ERROR';
-        return c.json({ error: { code, message: e.message } }, e.statusCode || 400);
-      }
-    } else {
-      return c.json({ error: { code: 'NO_FILE', message: 'Script URL is required' } }, 400);
-    }
-  }
-
-  if (!deployed) {
-    await deployWorker(account, c.env.ENCRYPTION_KEY, name, new TextEncoder().encode(scriptContent), { ...assetsOpts, mainModule });
-  }
-
-  await addAuditLog(c.env.DB, { account_id: account.id, action: 'deploy_worker', target: name, detail: deploySource + (assetsOpts ? ',with_assets' : ''), status: 'success' });
-  return c.json({ success: true }, 201);
 });
 
 // ============ Delete Worker/Pages ============
@@ -498,56 +431,20 @@ app.get('/usage', async (c) => {
   return c.json(results);
 });
 
-app.post('/:accountId/pages/deploy', async (c) => {
-  const account = await requireAccount(c);
-  const formData = await c.req.formData();
-  const name = formData.get('name') as string;
-  if (!name) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'Project name is required' } }, 400);
-  if (!validatePagesProjectName(name)) return c.json({ error: { code: 'VALIDATION_ERROR', message: '项目名只能包含小写字母、数字和连字符，且以字母或数字开头' } }, 400);
-
-  const skipCreateProject = formData.get('skipCreateProject') === 'true';
-  const uploadedFiles = formData.getAll('files') as unknown as File[];
-
-  let files: Array<{ path: string; buffer: Uint8Array }> = [];
-
-  if (uploadedFiles.length === 1 && uploadedFiles[0].name?.toLowerCase().endsWith('.zip')) {
-    const zipData = new Uint8Array(await uploadedFiles[0].arrayBuffer());
-    files = await extractZipFiles(zipData);
-  } else {
-    for (const f of uploadedFiles) {
-      const buf = new Uint8Array(await f.arrayBuffer());
-      files.push({ path: f.name.replace(/\\/g, '/').replace(/^\/+/, ''), buffer: buf });
-    }
-  }
-
-  if (!skipCreateProject) {
-    await ensurePagesProject(account, c.env.ENCRYPTION_KEY, name);
-  }
-
-  if (files.length === 0) {
-    const project = await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${name}`, c.env.ENCRYPTION_KEY);
-    return c.json(project.result || project, 201);
-  }
-
-  const result = await deployPages(account, c.env.ENCRYPTION_KEY, name, files, {
-    skipCreateProject: true,
-    commitMessage: 'Deploy via CF Manager',
-  });
-
-  await addAuditLog(c.env.DB, { account_id: account.id, action: 'deploy_pages', target: name, detail: `${files.length} files`, status: 'success' });
-  // 剥离 CF API 返回的 success 字段，避免与 responseWrapper 冲突
-  const { success: _cfSuccess, ...deploymentData } = result;
-  return c.json(deploymentData, 201);
-});
-
 // ============ Batch Deploy ============
 app.post('/batch-deploy', async (c) => {
   const contentType = c.req.header('content-type') || '';
   let targets: any[];
   let scriptContent: string | null = null;
   let scriptUrl: string | null = null;
-
   let assetsOpts: any;
+  let vars: ManualVarInput[] = [];
+  let bindingsInput: ManualBindingInput[] = [];
+  let isRedeploy = false;
+  let isZip = false;
+  let packageZip: Uint8Array | undefined;
+  let mainModule: string | undefined;
+
   if (contentType.includes('multipart/form-data')) {
     const form = await c.req.formData();
     targets = JSON.parse(form.get('targets') as string);
@@ -558,16 +455,30 @@ app.post('/batch-deploy', async (c) => {
       const buf = new Uint8Array(await assetsFile.arrayBuffer());
       assetsOpts = { assets: { source: { kind: assetsFile.name.toLowerCase().endsWith('.zip') ? 'zip' : 'raw', url: assetsFile.name }, assetsBuffer: buf } };
     }
-    if (file) scriptContent = await file.text();
+    mainModule = form.get('mainModule') as string || undefined;
+    vars = (() => { try { return JSON.parse((form.get('vars') as string) || '[]'); } catch { return []; } })();
+    bindingsInput = (() => { try { return JSON.parse((form.get('bindings') as string) || '[]'); } catch { return []; } })();
+    isRedeploy = form.get('isRedeploy') === 'true';
+    if (file) {
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        isZip = true;
+        packageZip = new Uint8Array(await file.arrayBuffer());
+      } else {
+        scriptContent = await file.text();
+      }
+    }
   } else {
     const body = await c.req.json();
     targets = body.targets;
     scriptUrl = body.url;
     scriptContent = body.script;
+    vars = body.vars || [];
+    bindingsInput = body.bindings || [];
+    isRedeploy = !!body.isRedeploy;
   }
 
   if (!Array.isArray(targets) || targets.length === 0) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'targets must be a non-empty array' } }, 400);
-  if (!scriptContent && !scriptUrl) return c.json({ error: { code: 'NO_FILE', message: 'Script or URL required' } }, 400);
+  if (!isRedeploy && !scriptContent && !scriptUrl && !isZip) return c.json({ error: { code: 'NO_FILE', message: 'Script or URL required' } }, 400);
 
   if (scriptUrl && !scriptContent) {
     try {
@@ -578,18 +489,42 @@ app.post('/batch-deploy', async (c) => {
     }
   }
 
-  const results = await Promise.all(targets.map(async (t: { accountId: number; workerName: string }) => {
-    try {
-      const account = await getAccountById(c.env.DB, t.accountId);
-      if (!account) return { ...t, success: false, error: 'Account not found' };
-      await deployWorker(account, c.env.ENCRYPTION_KEY, t.workerName, new TextEncoder().encode(scriptContent!), assetsOpts);
+  const results: Array<{ accountId: number; workerName: string; success: boolean; error?: string }> = [];
+  const CONCURRENCY = 3;
+  let cursor = 0;
+  const run = async () => {
+    while (cursor < targets.length) {
+      const t: { accountId: number; workerName: string } = targets[cursor++];
+      try {
+        const account = await getAccountById(c.env.DB, t.accountId);
+        if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); continue; }
+        const resolved = await resolveManualBindings(account, c.env.ENCRYPTION_KEY, bindingsInput);
+        const allBindings = [...varsToBindings(vars), ...resolved];
 
-      await addAuditLog(c.env.DB, { account_id: account.id, action: 'batch_deploy', target: t.workerName, detail: (scriptUrl ? `url=${scriptUrl}` : 'upload') + (assetsOpts ? ',with_assets' : ''), status: 'success' });
-      return { ...t, success: true };
-    } catch (err: any) {
-      return { ...t, success: false, error: err.message };
+        if (isRedeploy && !packageZip) {
+          // 重部署未换代码：走 diff（secrets 独立 API 保持 / 代码复用重传）
+          await applyWorkerConfigDiff(account, c.env.ENCRYPTION_KEY, t.workerName, {
+            vars, bindings: allBindings,
+            scriptContent: scriptContent ?? undefined,
+          });
+          await addAuditLog(c.env.DB, { account_id: account.id, action: 'batch_deploy', target: t.workerName, detail: 'redeploy_config', status: 'success' });
+          results.push({ ...t, success: true });
+          continue;
+        }
+
+        if (isZip) {
+          await deployWorker(account, c.env.ENCRYPTION_KEY, t.workerName, new Uint8Array(0), { ...assetsOpts, packageZip, mainModule, bindings: allBindings });
+        } else {
+          await deployWorker(account, c.env.ENCRYPTION_KEY, t.workerName, new TextEncoder().encode(scriptContent!), { ...assetsOpts, bindings: allBindings });
+        }
+        await addAuditLog(c.env.DB, { account_id: account.id, action: 'batch_deploy', target: t.workerName, detail: (scriptUrl ? `url=${scriptUrl}` : 'upload') + (assetsOpts ? ',with_assets' : ''), status: 'success' });
+        results.push({ ...t, success: true });
+      } catch (err: any) {
+        results.push({ ...t, success: false, error: err.message });
+      }
     }
-  }));
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, run));
   return c.json(results);
 });
 
@@ -598,32 +533,69 @@ app.post('/batch-deploy-pages', async (c) => {
   const form = await c.req.formData();
   const targets = JSON.parse(form.get('targets') as string);
   const zipFile = form.get('zipFile') as File | null;
+  const vars: ManualVarInput[] = (() => { try { return JSON.parse((form.get('vars') as string) || '[]'); } catch { return []; } })();
+  const bindingsInput: ManualBindingInput[] = (() => { try { return JSON.parse((form.get('bindings') as string) || '[]'); } catch { return []; } })();
+  const isRedeploy = form.get('isRedeploy') === 'true';
 
   if (!Array.isArray(targets) || targets.length === 0) return c.json({ error: { code: 'VALIDATION_ERROR', message: 'targets must be a non-empty array' } }, 400);
-  if (!zipFile) return c.json({ error: { code: 'NO_FILE', message: 'Zip file is required' } }, 400);
+  if (!zipFile && !isRedeploy) return c.json({ error: { code: 'NO_FILE', message: 'Zip file is required' } }, 400);
 
-  const zipBuffer = new Uint8Array(await zipFile.arrayBuffer());
-  const files = await extractZipFiles(zipBuffer);
-
-  if (files.length === 0) return c.json({ error: { code: 'EMPTY_ZIP', message: 'Zip file contains no files' } }, 400);
+  let files: Array<{ path: string; buffer: Uint8Array }> = [];
+  if (zipFile) {
+    const zipBuffer = new Uint8Array(await zipFile.arrayBuffer());
+    files = await extractZipFiles(zipBuffer);
+    if (files.length === 0) return c.json({ error: { code: 'EMPTY_ZIP', message: 'Zip file contains no files' } }, 400);
+  }
 
   const results: Array<{ accountId: number; workerName: string; success: boolean; error?: string }> = [];
-  for (const t of targets) {
-    try {
-      const account = await getAccountById(c.env.DB, t.accountId);
-      if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); continue; }
-      if (!validatePagesProjectName(t.workerName)) { results.push({ ...t, success: false, error: '项目名只能包含小写字母、数字和连字符' }); continue; }
+  const CONCURRENCY = 3;
+  let cursor = 0;
+  const run = async () => {
+    while (cursor < targets.length) {
+      const t: { accountId: number; workerName: string } = targets[cursor++];
+      try {
+        const account = await getAccountById(c.env.DB, t.accountId);
+        if (!account) { results.push({ ...t, success: false, error: 'Account not found' }); continue; }
+        if (!validatePagesProjectName(t.workerName)) { results.push({ ...t, success: false, error: '项目名只能包含小写字母、数字和连字符' }); continue; }
 
-      await deployPages(account, c.env.ENCRYPTION_KEY, t.workerName, files, {
-        commitMessage: 'Batch deploy via CF Manager',
-      });
-      await addAuditLog(c.env.DB, { account_id: account.id, action: 'batch_deploy_pages', target: t.workerName, detail: `${files.length} files`, status: 'success' });
-      results.push({ ...t, success: true });
-    } catch (err: any) {
-      results.push({ ...t, success: false, error: err.message });
+        const resolved = await resolveManualBindings(account, c.env.ENCRYPTION_KEY, bindingsInput);
+        const configs = buildPagesConfigsFromInput(vars, resolved);
+
+        if (isRedeploy && !zipFile) {
+          // 重部署未换代码：只更新 deployment_configs
+          if (configs) {
+            await cfFetch(account, `/accounts/${account.account_id}/pages/projects/${t.workerName}`, c.env.ENCRYPTION_KEY, {
+              method: 'PATCH', body: JSON.stringify({ deployment_configs: configs }),
+            });
+          }
+          await addAuditLog(c.env.DB, { account_id: account.id, action: 'redeploy_pages_config', target: t.workerName, status: 'success' });
+          results.push({ ...t, success: true });
+          continue;
+        }
+
+        await deployPages(account, c.env.ENCRYPTION_KEY, t.workerName, files, configs ? { deploymentConfigs: configs } : { commitMessage: 'Batch deploy via CF Manager' });
+        await addAuditLog(c.env.DB, { account_id: account.id, action: 'batch_deploy_pages', target: t.workerName, detail: `${files.length} files`, status: 'success' });
+        results.push({ ...t, success: true });
+      } catch (err: any) {
+        results.push({ ...t, success: false, error: err.message });
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, run));
   return c.json(results);
+});
+
+// ============ Config (重部署预填) ============
+app.get('/:accountId/workers/:name/config', async (c) => {
+  const account = await requireAccount(c);
+  const config = await getWorkerConfig(account, c.env.ENCRYPTION_KEY, c.req.param('name'));
+  return c.json(config);
+});
+
+app.get('/:accountId/pages/:name/config', async (c) => {
+  const account = await requireAccount(c);
+  const config = await getPagesConfig(account, c.env.ENCRYPTION_KEY, c.req.param('name'));
+  return c.json(config);
 });
 
 // ============ Environment Sync ============

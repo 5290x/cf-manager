@@ -47,6 +47,21 @@
 - **用量显示**：每张生成的图片返回并显示神经元消耗（⚡ neurons 徽章）。
 - **组件重命名**：`AiView.vue` 重命名为 `AiChatView.vue`，更清晰地表达其职责。
 
+### 🛠 Workers & Pages 部署增强
+
+#### 新增
+- Workers & Pages 手动部署支持环境变量（明文/机密）与绑定（KV/D1/R2/AI/DO/Service/Queue），Worker 与 Pages 双端可用
+- 重部署可只更新配置：打开部署对话框预填当前配置；secrets 变更走独立 API 不重传代码，vars/bindings 变更复用现有代码重传
+- 单/批量部署入口合并：账户多选（选 1 = 单个部署），失败账户可单独重试
+- 新增配置读取端点：GET /workers/:accountId/workers/:name/config、GET /workers/:accountId/pages/:name/config
+
+#### 变更
+- 删除单账户部署端点（POST /:accountId/workers、POST /:accountId/pages/deploy、deployFromUrl），统一走 batch-deploy / batch-deploy-pages
+- 批量部署增加受控并发（concurrency=3）
+
+#### 说明
+- 重部署 diff：仅 secrets 变化时只调 secrets API 不重传代码；vars/bindings 变化时后端复用现有代码重传，用户无需再上传文件
+
 ## [1.6.0] - 2026-08-06
 
 ### 🚀 新特性

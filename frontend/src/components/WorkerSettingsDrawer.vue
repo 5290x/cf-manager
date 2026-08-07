@@ -9,7 +9,7 @@
               <n-text depth="3">{{ t('workerSettings.envAndSecrets') }}</n-text>
               <n-space>
                 <n-button size="small" @click="openEnvSync">{{ t('workerSettings.syncToOther') }}</n-button>
-                <n-button size="small" type="primary" @click="secretEditing = false; secretForm = { name: '', type: 'secret_text', text: '', key_base64: '' }; showSecretModal = true">{{ t('workerSettings.addSecret') }}</n-button>
+                <n-button size="small" type="primary" @click="openVarModal()">{{ t('workerSettings.addVar') }}</n-button>
               </n-space>
             </n-space>
             <n-spin :show="secretsLoading">
@@ -199,25 +199,22 @@
     </n-drawer-content>
   </n-drawer>
 
-  <!-- Secret Modal -->
-  <n-modal v-model:show="showSecretModal" preset="dialog" :title="secretEditing ? t('workerSettings.editSecret') : t('workerSettings.addSecret')" style="width: 450px; max-width: 95vw">
+  <!-- 变量 Modal（明文 + 机密统一，对齐 Pages 抽屉 UI） -->
+  <n-modal v-model:show="showSecretModal" preset="dialog" :title="secretEditing ? t('workerSettings.editVar') : t('workerSettings.addVar')" style="width: 450px; max-width: 95vw">
     <n-form :model="secretForm" label-placement="left" label-width="80">
       <n-form-item :label="t('workerSettings.secretName')">
         <n-input v-model:value="secretForm.name" :placeholder="t('workerSettings.secretNamePlaceholder')" :disabled="secretEditing" />
       </n-form-item>
-      <n-form-item :label="t('workerSettings.secretType')">
-        <n-select v-model:value="secretForm.type" :options="[{label:'Text',value:'secret_text'},{label:'Key',value:'secret_key'}]" />
+      <n-form-item :label="t('workerSettings.typeLabel')">
+        <n-select v-model:value="secretForm.type" :options="typeOptions" :disabled="secretEditing" />
       </n-form-item>
-      <n-form-item v-if="secretForm.type === 'secret_text'" :label="t('workerSettings.secretValue')">
-        <n-input v-model:value="secretForm.text" type="password" show-password-on="click" :placeholder="t('workerSettings.secretValuePlaceholder')" />
-      </n-form-item>
-      <n-form-item v-else :label="t('workerSettings.base64Key')">
-        <n-input v-model:value="secretForm.key_base64" type="password" show-password-on="click" :placeholder="t('workerSettings.base64KeyPlaceholder')" />
+      <n-form-item :label="t('workerSettings.varValueLabel')">
+        <n-input v-model:value="secretForm.value" :type="secretForm.type === 'secret_text' ? 'password' : 'text'" show-password-on="click" :placeholder="t('workerSettings.varValuePlaceholder')" />
       </n-form-item>
     </n-form>
     <template #action>
       <n-button @click="showSecretModal = false">{{ t('common.cancel') }}</n-button>
-      <n-button type="primary" :loading="secretSaving" @click="handleAddSecret">{{ t('common.save') }}</n-button>
+      <n-button type="primary" :loading="secretSaving" @click="handleSaveVar">{{ t('common.save') }}</n-button>
     </template>
   </n-modal>
 
@@ -350,13 +347,13 @@ function drawerWidth(desktopWidth: number): number {
   return window.innerWidth <= 768 ? Math.min(window.innerWidth, desktopWidth) : desktopWidth;
 }
 
-// Secrets
+// Secrets (环境变量：明文 + 机密统一管理)
 const secrets = ref<any[]>([]);
 const secretsLoading = ref(false);
 const showSecretModal = ref(false);
 const secretSaving = ref(false);
 const secretEditing = ref(false);
-const secretForm = ref({ name: '', type: 'secret_text', text: '', key_base64: '' });
+const secretForm = ref({ name: '', value: '', type: 'plain_text' });
 
 // Schedules
 const schedules = ref<any[]>([]);
@@ -499,34 +496,88 @@ const syncResults = ref<any[]>([]);
 async function loadSecrets() {
   secretsLoading.value = true;
   try {
-    const { data } = await workersApi.getSecrets(accountId.value, workerName.value);
-    secrets.value = Array.isArray(data) ? data : [];
+    // 合并显示所有环境变量：明文（getWorkerConfig）+ 机密（config vars + secrets API 补充）
+    const [cfg, sec] = await Promise.all([
+      workersApi.getWorkerConfig(accountId.value, workerName.value),
+      workersApi.getSecrets(accountId.value, workerName.value),
+    ]);
+    const cfgVars = (cfg?.data?.vars || []) as any[];
+    const secList = (Array.isArray(sec?.data) ? sec.data : []) as any[];
+    const merged: any[] = [
+      ...cfgVars.map((v: any) => ({ name: v.name, type: v.secret ? 'secret_text' : 'plain_text', value: v.value ?? '' })),
+      ...secList.filter((s: any) => !cfgVars.some((v: any) => v.name === s.name)).map((s: any) => ({ name: s.name, type: 'secret_text', value: '' })),
+    ];
+    secrets.value = merged;
   } catch { secrets.value = []; }
   finally { secretsLoading.value = false; }
 }
 
-async function handleAddSecret() {
-  if (!secretForm.value.name) { message.warning(t('workerSettings.msg.nameRequired')); return; }
-  secretSaving.value = true;
-  try {
-    await workersApi.updateSecret(accountId.value, workerName.value, secretForm.value.name, secretForm.value.type, secretForm.value.text, secretForm.value.key_base64);
-    message.success(t('workerSettings.msg.secretSaved'));
-    showSecretModal.value = false;
-    secretForm.value = { name: '', type: 'secret_text', text: '', key_base64: '' };
-    loadSecrets();
-  } finally { secretSaving.value = false; }
-}
+// 统一 type 选择：明文 / 机密
+const typeOptions = computed(() => [
+  { label: t('workers.envVars.plainLabel'), value: 'plain_text' },
+  { label: t('workerSettings.secretTextLabel'), value: 'secret_text' },
+]);
 
-function handleEditSecret(row: any) {
-  secretEditing.value = true;
-  secretForm.value = { name: row.name, type: row.type || 'secret_text', text: '', key_base64: '' };
+function openVarModal(row?: any) {
+  secretEditing.value = !!row;
+  secretForm.value = row
+    ? { name: row.name, value: '', type: row.type || 'plain_text' }
+    : { name: '', value: '', type: 'plain_text' };
   showSecretModal.value = true;
 }
 
-async function handleDeleteSecret(row: any) {
-  await workersApi.deleteSecret(accountId.value, workerName.value, row.name);
-  message.success(t('workerSettings.msg.secretDeleted'));
-  loadSecrets();
+// 保存变量：明文走 batchDeploy 重部署（同时保留机密 keep=true），机密走 updateSecret
+async function handleSaveVar() {
+  const form = secretForm.value;
+  if (!form.name) { message.warning(t('workerSettings.msg.nameRequired')); return; }
+  secretSaving.value = true;
+  try {
+    if (form.type === 'plain_text') {
+      // 明文：收集当前所有 vars（机密 keep=true），替换/添加该 name 的明文，batchDeploy 重部署
+      const cfg = await workersApi.getWorkerConfig(accountId.value, workerName.value);
+      const currentVars = (cfg?.data?.vars || []) as any[];
+      const nextVars = currentVars
+        .filter((v: any) => v.name !== form.name)
+        .map((v: any) => ({ name: v.name, value: '', secret: !!v.secret, keep: !!v.secret }));
+      nextVars.push({ name: form.name, value: form.value, secret: false, keep: false });
+      await workersApi.batchDeploy(
+        [{ accountId: accountId.value, workerName: workerName.value }],
+        { isRedeploy: true, vars: nextVars },
+      );
+    } else {
+      // 机密：PUT /secrets/:name
+      await workersApi.updateSecret(accountId.value, workerName.value, form.name, 'secret_text', form.value, '');
+    }
+    message.success(t('workerSettings.msg.varSaved'));
+    showSecretModal.value = false;
+    loadSecrets();
+  } catch (e: any) {
+    message.error(e?.errorMessage || e?.message || t('workerSettings.msg.saveFailed'));
+  } finally { secretSaving.value = false; }
+}
+
+// 删除变量：明文走 batchDeploy 移除（机密 keep），机密走 deleteSecret
+async function handleDeleteVar(row: any) {
+  secretSaving.value = true;
+  try {
+    if (row.type === 'plain_text') {
+      const cfg = await workersApi.getWorkerConfig(accountId.value, workerName.value);
+      const currentVars = (cfg?.data?.vars || []) as any[];
+      const nextVars = currentVars
+        .filter((v: any) => v.name !== row.name)
+        .map((v: any) => ({ name: v.name, value: '', secret: !!v.secret, keep: !!v.secret }));
+      await workersApi.batchDeploy(
+        [{ accountId: accountId.value, workerName: workerName.value }],
+        { isRedeploy: true, vars: nextVars },
+      );
+    } else {
+      await workersApi.deleteSecret(accountId.value, workerName.value, row.name);
+    }
+    message.success(t('workerSettings.msg.varDeleted'));
+    loadSecrets();
+  } catch (e: any) {
+    message.error(e?.errorMessage || e?.message || t('workerSettings.msg.deleteFailed'));
+  } finally { secretSaving.value = false; }
 }
 
 async function loadSchedules() {
@@ -725,12 +776,13 @@ async function handleEnvSync() {
 // Columns
 const secretColumns = computed<DataTableColumns<any>>(() => [
   { title: t('workerSettings.secretName'), key: 'name', minWidth: 100 },
-  { title: t('workerSettings.secretType'), key: 'type', width: 120, render: (row) => h(NTag, { size: 'small' }, { default: () => row.type || 'unknown' }) },
-  { title: t('common.actions'), key: 'actions', width: 140, render: (row) => h(NSpace, { size: 4 }, {
+  { title: t('workerSettings.secretType'), key: 'type', width: 100, render: (row) => h(NTag, { size: 'small', type: row.type === 'secret_text' ? 'warning' : 'info', bordered: false }, { default: () => row.type === 'secret_text' ? t('workers.envVars.secretLabel') : t('workers.envVars.plainLabel') }) },
+  { title: t('workerSettings.varValueLabel'), key: 'value', minWidth: 160, render: (row) => row.type === 'secret_text' ? h('span', { style: 'color:#999' }, '******') : (row.value || h('span', { style: 'color:#999' }, '—')) },
+  { title: t('common.actions'), key: 'actions', width: 150, render: (row) => h(NSpace, { size: 4 }, {
     default: () => [
-      h(NButton, { size: 'tiny', onClick: () => handleEditSecret(row) }, { default: () => t('common.edit') }),
+      h(NButton, { size: 'tiny', onClick: () => openVarModal(row) }, { default: () => t('common.edit') }),
       ...(isDemoAccount(accountId.value) ? [] : [
-        h(NButton, { size: 'tiny', type: 'error', onClick: () => handleDeleteSecret(row) }, { default: () => t('common.delete') }),
+        h(NButton, { size: 'tiny', type: 'error', onClick: () => handleDeleteVar(row) }, { default: () => t('common.delete') }),
       ]),
     ],
   }) },
