@@ -42,11 +42,22 @@ API Token 是 Cloudflare 推荐的认证方式，支持细粒度的权限控制�
    - `Account.Cloudflare Pages:Edit` — Pages 项目和部署管理
    - `Account.Workers AI:Edit` — AI 模型列表和推理
    - `Account.Browser Rendering:Edit` — 浏览器渲染（截图、PDF、Markdown 等）
+   - `Account.Cloudflare Tunnel:Edit` — 隧道（cloudflared）管理：创建/删除隧道、读取连接状态、获取隧道 Token、查看与更新 ingress 配置（含隧道绑定域名探测，依赖下方 Zone 级 DNS 权限）
+   - `Account.Rulesets:Edit` — 账户级规则集管理（如账户级单重定向 `http_request_redirect` 规则）
 
    **Zone 级别权限：**
    - `Zone.Zone:Read` — 区域列表读取
-   - `Zone.DNS:Edit` — DNS 记录管理（含 Pages 自动 CNAME）
+   - `Zone.Zone:Edit` — 区域创建 / 删除 / 暂停与激活
+   - `Zone.Zone Settings:Edit` — 区域设置（SSL、缓存、安全等级等）管理
+   - `Zone.Cache Purge:Edit` — 清除区域缓存
+   - `Zone.DNS:Edit` — DNS 记录管理（含 Pages 自动 CNAME、隧道绑定域名探测）
    - `Zone.Workers Routes:Edit` — Workers 路由管理
+   - `Zone.Origin Rules:Edit` — 回源规则（"规则引擎"）
+   - `Zone.Redirect Rules:Edit` — 区域级重定向规则（"规则引擎"）
+   - `Zone.Transform Rules:Edit` — URL 重写 / 请求头 / 响应头转换规则（"规则引擎"）
+   - `Zone.Cache Rules:Edit` — 缓存设置规则（"规则引擎"）
+   - `Zone.WAF:Edit` — 防火墙自定义规则（"规则引擎"）
+   - `Zone.Rate Limiting:Edit` — 速率限制规则（"规则引擎"）
 7. 设置 Token 名称，确认资源范围：
    - **Account Resources**：选择 `All accounts` 或指定账户（推荐选 `All accounts`，方便多账户管理）
    - **Zone Resources**：选择 `All zones` 或指定区域（推荐选 `All zones`，Workers 路由和 DNS 管理需要）
