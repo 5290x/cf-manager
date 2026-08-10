@@ -87,11 +87,14 @@ const emit = defineEmits<{
 
 const faved = computed(() => isFav(props.item));
 
+// 仓库地址：优先用模板的 homepage（真正的项目仓库），
+// 再退化到 source.url（raw 源文件地址，从中能反推 GitHub 仓库），
+// 最后才到 author.url（仅是作者个人主页，不一定是仓库本身）。
 const repoUrl = computed(() => {
   return (
-    props.item.template.author?.url ||
     props.item.template.homepage ||
     props.item.template.source?.url ||
+    props.item.template.author?.url ||
     ''
   );
 });

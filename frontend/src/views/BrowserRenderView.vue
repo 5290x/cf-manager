@@ -75,6 +75,15 @@
           <n-radio-button value="pdf">{{ t('browserRender.pdf') }}</n-radio-button>
           <n-radio-button value="links">{{ t('browserRender.linkExtract') }}</n-radio-button>
         </n-radio-group>
+        <n-space align="center" :wrap="true">
+          <span style="font-size: 13px; color: var(--app-text-muted);">{{ t('browserRender.engine') }}</span>
+          <n-select
+            v-model:value="browserEngine"
+            :options="engineOptions"
+            size="small"
+            style="width: 140px; max-width: 45vw;"
+          />
+        </n-space>
       </n-space>
     </n-card>
 
@@ -143,7 +152,7 @@
 import { ref, onMounted } from 'vue';
 import { useMessage } from 'naive-ui';
 import { useI18n } from 'vue-i18n';
-import { browserRenderApi, type RenderMode } from '../api/browserRender';
+import { browserRenderApi, type RenderMode, type BrowserEngine } from '../api/browserRender';
 import { accountsApi } from '../api/accounts';
 
 const { t } = useI18n();
@@ -154,6 +163,11 @@ const accountOptions = ref<{ label: string; value: string }[]>([]);
 interface UsageItem { accountId: number; accountName: string; used: number; limit: number; }
 const usageList = ref<UsageItem[]>([]);
 const renderMode = ref<RenderMode>('screenshot');
+const browserEngine = ref<BrowserEngine>('chrome');
+const engineOptions = [
+  { label: 'Chrome', value: 'chrome' },
+  { label: 'Kitesurf', value: 'kitesurf' },
+];
 const rendering = ref(false);
 const htmlViewMode = ref<'render' | 'source'>('render');
 const result = ref<any>(null);
@@ -177,7 +191,7 @@ async function handleRender() {
   result.value = null;
   try {
     const acctId = selectedAccount.value !== 'auto' ? Number(selectedAccount.value) : undefined;
-    const { data } = await browserRenderApi.render(url.value, renderMode.value, acctId);
+    const { data } = await browserRenderApi.render(url.value, renderMode.value, acctId, browserEngine.value);
     if (data.screenshot && !data.screenshot.startsWith('data:')) {
       data.screenshot = `data:image/png;base64,${data.screenshot}`;
     }

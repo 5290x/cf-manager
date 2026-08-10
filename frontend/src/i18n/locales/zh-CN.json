@@ -708,6 +708,7 @@
     "usedTotal": "已用 / 总量",
     "usageRate": "使用率",
     "account": "账户",
+    "engine": "浏览器引擎",
     "enterUrl": "输入 URL",
     "startRender": "开始渲染",
     "screenshot": "截图",

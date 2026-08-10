@@ -708,6 +708,7 @@
     "usedTotal": "Used / Total",
     "usageRate": "Usage Rate",
     "account": "Account",
+    "engine": "Browser Engine",
     "enterUrl": "Enter URL",
     "startRender": "Start Render",
     "screenshot": "Screenshot",

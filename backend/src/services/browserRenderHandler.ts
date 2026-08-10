@@ -1,13 +1,15 @@
 import { Account, getAccountById } from '../models/account';
-import { renderPage, RenderMode, RenderResult } from './browserRenderService';
+import { renderPage, RenderMode, RenderResult, BrowserEngine } from './browserRenderService';
 import { acquireToken, markAccountExhausted } from './browserRateLimiter';
 import { createAuditLog } from '../models/auditLog';
 
 const VALID_MODES: RenderMode[] = ['screenshot', 'content', 'markdown', 'pdf', 'links'];
+const VALID_BROWSERS: BrowserEngine[] = ['chrome', 'kitesurf'];
 
 export interface BrowserRenderRequest {
   url: string;
   mode?: RenderMode;
+  browser?: BrowserEngine;
   accountId?: number;
 }
 
@@ -30,13 +32,16 @@ function isDailyLimitError(msg: string, retryAfter: number): boolean {
 }
 
 export async function handleBrowserRender(req: BrowserRenderRequest): Promise<{ status: number; body: BrowserRenderResponse }> {
-  const { url, mode = 'screenshot', accountId } = req;
+  const { url, mode = 'screenshot', browser = 'chrome', accountId } = req;
 
   if (!url || typeof url !== 'string') {
     return { status: 400, body: { success: false, error: { message: 'url is required', code: 'INVALID_REQUEST' } } };
   }
   if (!VALID_MODES.includes(mode)) {
     return { status: 400, body: { success: false, error: { message: `Invalid mode: ${mode}. Supported: ${VALID_MODES.join(', ')}`, code: 'INVALID_MODE' } } };
+  }
+  if (browser && !VALID_BROWSERS.includes(browser)) {
+    return { status: 400, body: { success: false, error: { message: `Invalid browser: ${browser}. Supported: ${VALID_BROWSERS.join(', ')}`, code: 'INVALID_BROWSER' } } };
   }
 
   let account: Account;
@@ -60,8 +65,8 @@ export async function handleBrowserRender(req: BrowserRenderRequest): Promise<{ 
   }
 
   try {
-    const result = await renderPage(account, url, mode);
-    createAuditLog(account.id, 'browser_render', url, `mode=${mode} ${result.browserMsUsed || 0}ms`, 'success');
+    const result = await renderPage(account, url, mode, browser);
+    createAuditLog(account.id, 'browser_render', url, `mode=${mode} browser=${browser} ${result.browserMsUsed || 0}ms`, 'success');
     return { status: 200, body: { success: true, result } };
   } catch (err: any) {
     const msg = err?.message || '';
@@ -76,8 +81,8 @@ export async function handleBrowserRender(req: BrowserRenderRequest): Promise<{ 
         const retry = acquireToken();
         if (retry.type === 'ok') {
           try {
-            const result = await renderPage(retry.account, url, mode);
-            createAuditLog(retry.account.id, 'browser_render', url, `mode=${mode} retry ${result.browserMsUsed || 0}ms`, 'success');
+            const result = await renderPage(retry.account, url, mode, browser);
+            createAuditLog(retry.account.id, 'browser_render', url, `mode=${mode} browser=${browser} retry ${result.browserMsUsed || 0}ms`, 'success');
             return { status: 200, body: { success: true, result } };
           } catch (retryErr: any) {
             return { status: retryErr?.statusCode || 500, body: { success: false, error: { message: retryErr.message, code: 'RENDER_FAILED' } } };
