@@ -5,6 +5,9 @@ import { proxyFetch } from './proxyService';
 
 export type RenderMode = 'screenshot' | 'content' | 'markdown' | 'pdf' | 'links';
 
+// 浏览器引擎：chrome（默认 Chromium）或 kitesurf（Cloudflare 新一代引擎）
+export type BrowserEngine = 'chrome' | 'kitesurf';
+
 export interface RenderResult {
   mode: RenderMode;
   screenshot?: string;
@@ -19,7 +22,8 @@ export interface RenderResult {
 export async function renderPage(
   account: Account,
   url: string,
-  mode: RenderMode = 'screenshot'
+  mode: RenderMode = 'screenshot',
+  browser: BrowserEngine = 'chrome'
 ): Promise<RenderResult> {
   const accountId = account.account_id;
   const headers = getAuthHeaders(account);
@@ -28,7 +32,9 @@ export async function renderPage(
 
   const body: Record<string, any> = { url };
 
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/browser-rendering/${mode}`;
+  // Kitesurf 引擎通过向 Browser Run Quick Action 端点追加 ?browser=kitesurf 启用
+  const query = browser === 'kitesurf' ? '?browser=kitesurf' : '';
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/browser-rendering/${mode}${query}`;
   const resp = await proxyFetch(endpoint, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },

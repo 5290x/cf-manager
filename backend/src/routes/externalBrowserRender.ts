@@ -6,8 +6,8 @@ const router = Router();
 
 router.post('/render', async (req, res, next) => {
   try {
-    const { url, mode, accountId } = req.body;
-    const { status, body } = await handleBrowserRender({ url, mode, accountId });
+    const { url, mode, browser, accountId } = req.body;
+    const { status, body } = await handleBrowserRender({ url, mode, browser, accountId });
     res.status(status).json(body);
   } catch (err) { next(err); }
 });

@@ -8,6 +8,9 @@ import { logger } from '../services/logger';
 
 type RenderMode = 'screenshot' | 'content' | 'markdown' | 'pdf' | 'links';
 const VALID_MODES: RenderMode[] = ['screenshot', 'content', 'markdown', 'pdf', 'links'];
+// 浏览器引擎：chrome（默认 Chromium）或 kitesurf（Cloudflare 新一代引擎）
+type BrowserEngine = 'chrome' | 'kitesurf';
+const VALID_BROWSERS: BrowserEngine[] = ['chrome', 'kitesurf'];
 
 /** 当 retry-after 超过此阈值（秒）时，判定为 CF 日限额用尽，而非短时速率限制。 */
 const DAILY_LIMIT_RETRY_AFTER_THRESHOLD = 60;
@@ -42,10 +45,12 @@ function parseRetryAfter(resp: Response): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-/** 实际调用 CF browser-rendering API 并解析响应。失败时抛出带 statusCode/retryAfter 的错误。 */
-async function callCfRender(account: any, url: string, mode: RenderMode, env: Env): Promise<any> {
+/** 实际调用 CF browser-rendering（Browser Run）API 并解析响应。失败时抛出带 statusCode/retryAfter 的错误。 */
+async function callCfRender(account: any, url: string, mode: RenderMode, env: Env, browser: BrowserEngine = 'chrome'): Promise<any> {
   const headers = await getAuthHeaders(account, env.ENCRYPTION_KEY);
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account.account_id}/browser-rendering/${mode}`;
+  // Kitesurf 引擎通过向 Quick Action 端点追加 ?browser=kitesurf 启用
+  const query = browser === 'kitesurf' ? '?browser=kitesurf' : '';
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account.account_id}/browser-rendering/${mode}${query}`;
   const startTime = Date.now();
 
   const resp = await fetch(endpoint, {
@@ -116,7 +121,7 @@ async function callCfRender(account: any, url: string, mode: RenderMode, env: En
     account_id: account.id,
     action: 'browser_render',
     target: url,
-    detail: `mode=${mode} ${browserMsUsed}ms`,
+    detail: `mode=${mode} browser=${browser} ${browserMsUsed}ms`,
     status: 'success',
   });
 
@@ -124,7 +129,7 @@ async function callCfRender(account: any, url: string, mode: RenderMode, env: En
 }
 
 /** 处理一次渲染请求，包含日限额故障转移。 */
-async function handleRender(url: string, mode: RenderMode, env: Env, specifiedAccountId?: number): Promise<RenderOutcome> {
+async function handleRender(url: string, mode: RenderMode, env: Env, specifiedAccountId?: number, browser: BrowserEngine = 'chrome'): Promise<RenderOutcome> {
   let account: any;
   let tokenResult: AcquireResult | null = null;
 
@@ -163,7 +168,7 @@ async function handleRender(url: string, mode: RenderMode, env: Env, specifiedAc
 
   // 2. 第一次尝试
   try {
-    const result = await callCfRender(account, url, mode, env);
+    const result = await callCfRender(account, url, mode, env, browser);
     return { status: 200, body: result };
   } catch (err: any) {
     const message = err?.message || '';
@@ -186,7 +191,7 @@ async function handleRender(url: string, mode: RenderMode, env: Env, specifiedAc
         const retry = await acquireToken(env);
         if (retry.type === 'ok') {
           try {
-            const result = await callCfRender(retry.account, url, mode, env);
+            const result = await callCfRender(retry.account, url, mode, env, browser);
             return { status: 200, body: result };
           } catch (retryErr: any) {
             return {
@@ -234,7 +239,7 @@ async function handleRender(url: string, mode: RenderMode, env: Env, specifiedAc
 const app = new Hono<{ Bindings: Env }>();
 
 app.post('/', async (c) => {
-  const { url, mode = 'screenshot', accountId } = await c.req.json();
+  const { url, mode = 'screenshot', browser = 'chrome', accountId } = await c.req.json();
 
   if (!url || typeof url !== 'string') {
     return c.json({ error: { message: 'url is required', code: 'INVALID_REQUEST' } }, 400);
@@ -242,8 +247,11 @@ app.post('/', async (c) => {
   if (!VALID_MODES.includes(mode)) {
     return c.json({ error: { message: `Invalid mode: ${mode}. Supported: ${VALID_MODES.join(', ')}`, code: 'INVALID_MODE' } }, 400);
   }
+  if (browser && !VALID_BROWSERS.includes(browser)) {
+    return c.json({ error: { message: `Invalid browser: ${browser}. Supported: ${VALID_BROWSERS.join(', ')}`, code: 'INVALID_BROWSER' } }, 400);
+  }
 
-  const outcome = await handleRender(url, mode, c.env, accountId);
+  const outcome = await handleRender(url, mode, c.env, accountId, browser);
   return c.json(outcome.body, outcome.status as any);
 });
 
@@ -251,7 +259,7 @@ app.post('/', async (c) => {
 
 // POST /render — 外部渲染请求（不经过 responseWrapper）
 app.post('/render', async (c) => {
-  const { url, mode = 'screenshot', accountId } = await c.req.json();
+  const { url, mode = 'screenshot', browser = 'chrome', accountId } = await c.req.json();
 
   if (!url || typeof url !== 'string') {
     return c.json({ error: { message: 'url is required', code: 'INVALID_REQUEST' } }, 400);
@@ -259,8 +267,11 @@ app.post('/render', async (c) => {
   if (!VALID_MODES.includes(mode)) {
     return c.json({ error: { message: `Invalid mode: ${mode}. Supported: ${VALID_MODES.join(', ')}`, code: 'INVALID_MODE' } }, 400);
   }
+  if (browser && !VALID_BROWSERS.includes(browser)) {
+    return c.json({ error: { message: `Invalid browser: ${browser}. Supported: ${VALID_BROWSERS.join(', ')}`, code: 'INVALID_BROWSER' } }, 400);
+  }
 
-  const outcome = await handleRender(url, mode, c.env, accountId);
+  const outcome = await handleRender(url, mode, c.env, accountId, browser);
   return c.json(outcome.body, outcome.status as any);
 });
 

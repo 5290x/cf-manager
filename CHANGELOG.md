@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.1] - 2026-08-10
+
+### 🔧 优化
+
+- **浏览器渲染支持 Kitesurf 引擎**：浏览器渲染（Browser Run）Quick Action 新增浏览器引擎选择，支持 Cloudflare 新一代 Kitesurf 引擎（`?browser=kitesurf`）与默认 Chromium 引擎切换。前端新增「浏览器引擎」选择器（Chrome / Kitesurf），请求透传至 backend 与 worker 双后端；非法引擎返回 `INVALID_BROWSER` 错误。双后端（Express + Hono）对称实现。
+
 ## [2.0.0] - 2026-08-07
 
 ### 🚀 新特性
