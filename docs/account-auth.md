@@ -41,7 +41,7 @@ API Token 是 Cloudflare 推荐的认证方式，支持细粒度的权限控制�
    - `Account.Workers R2 Storage:Edit` — R2 存储桶和对象管理
    - `Account.Cloudflare Pages:Edit` — Pages 项目和部署管理
    - `Account.Workers AI:Edit` — AI 模型列表和推理
-   - `Account.Browser Rendering:Edit` — 浏览器渲染（截图、PDF、Markdown 等）
+   - `Account.Browser Rendering:Edit` — 浏览器渲染（截图、PDF、Markdown 等）。**注意**：Cloudflare 较新账户已在权限列表中移除该独立权限（产品已更名为 Browser Run），部分账户可能看不到此项。若列表中无此权限，浏览器渲染功能需改用「Global API Key + Email」（方式二）或确认账户已开通 Browser Rendering/Browser Run 计划。
    - `Account.Cloudflare Tunnel:Edit` — 隧道（cloudflared）管理：创建/删除隧道、读取连接状态、获取隧道 Token、查看与更新 ingress 配置（含隧道绑定域名探测，依赖下方 Zone 级 DNS 权限）
    - `Account.Rulesets:Edit` — 账户级规则集管理（如账户级单重定向 `http_request_redirect` 规则）
 
@@ -49,15 +49,15 @@ API Token 是 Cloudflare 推荐的认证方式，支持细粒度的权限控制�
    - `Zone.Zone:Read` — 区域列表读取
    - `Zone.Zone:Edit` — 区域创建 / 删除 / 暂停与激活
    - `Zone.Zone Settings:Edit` — 区域设置（SSL、缓存、安全等级等）管理
-   - `Zone.Cache Purge:Edit` — 清除区域缓存
+   - `Zone.Cache Purge` — 清除区域缓存（**注意**：Cloudflare 已取消 Read/Edit 区分，权限列表中仅剩统一的 `Cache Purge`，不再有 `:Edit` 后缀）
    - `Zone.DNS:Edit` — DNS 记录管理（含 Pages 自动 CNAME、隧道绑定域名探测）
    - `Zone.Workers Routes:Edit` — Workers 路由管理
    - `Zone.Origin Rules:Edit` — 回源规则（"规则引擎"）
-   - `Zone.Redirect Rules:Edit` — 区域级重定向规则（"规则引擎"）
+   - `Zone.Single Redirect:Edit` / `Zone.Dynamic URL Redirects:Edit` — 区域级重定向规则（"规则引擎"）。**注意**：原 `Zone.Redirect Rules:Edit` 已被拆分重命名为 Single Redirect 与 Dynamic URL Redirects，请按需求勾选对应项（列表中的 `Redirect Rules` 名称已不再存在）
    - `Zone.Transform Rules:Edit` — URL 重写 / 请求头 / 响应头转换规则（"规则引擎"）
    - `Zone.Cache Rules:Edit` — 缓存设置规则（"规则引擎"）
    - `Zone.WAF:Edit` — 防火墙自定义规则（"规则引擎"）
-   - `Zone.Rate Limiting:Edit` — 速率限制规则（"规则引擎"）
+   - `Zone.Rate Limiting Rules:Edit`（或 `Zone.WAF:Edit` 下的速率限制规则）— 速率限制规则（"规则引擎"）。**注意**：原 `Zone.Rate Limiting:Edit` 已从权限列表中移除，速率限制能力已并入 WAF / 规则集体系，请使用 `Rate Limiting Rules` 或 `Custom Rules` 相关权限
 7. 设置 Token 名称，确认资源范围：
    - **Account Resources**：选择 `All accounts` 或指定账户（推荐选 `All accounts`，方便多账户管理）
    - **Zone Resources**：选择 `All zones` 或指定区域（推荐选 `All zones`，Workers 路由和 DNS 管理需要）
