@@ -70,6 +70,7 @@ jobs:
           echo "::add-mask::${{ github.event.inputs.encryption_key }}"
           echo "::add-mask::${{ github.event.inputs.api_secret }}"
           echo "CLOUDFLARE_GLOBAL_KEY=${{ github.event.inputs.cf_global_key }}" >> $GITHUB_ENV
+          echo "CLOUDFLARE_API_KEY=${{ github.event.inputs.cf_global_key }}" >> $GITHUB_ENV
           echo "CLOUDFLARE_EMAIL=${{ github.event.inputs.cf_email }}" >> $GITHUB_ENV
           echo "ENCRYPTION_KEY=${{ github.event.inputs.encryption_key }}" >> $GITHUB_ENV
           echo "API_SECRET=${{ github.event.inputs.api_secret }}" >> $GITHUB_ENV
