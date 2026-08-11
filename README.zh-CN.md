@@ -68,7 +68,7 @@
 
 1. **Fork 本仓库** → 点击右上角 Fork
 2. 进入 Fork 仓库 → **Settings** → **Environments** → **New environment**，创建环境（如 `production`），在环境内添加 4 个 secret：
-   - `CF_GLOBAL_KEY`：Cloudflare Global API Key（高权限密钥，建议改用细粒度 API Token，见 [账户认证文档](docs/account-auth.md)）
+   - `CF_GLOBAL_KEY`：Cloudflare Global API Key（部署流程需要全局权限，暂不支持 API Token）
    - `CF_EMAIL`：Cloudflare 账号邮箱
    - `ENCRYPTION_KEY`：加密密钥（请填写高强度随机字符串，至少 16 位）
    - `API_SECRET`：管理界面访问密码（请填写高强度随机字符串，不要使用弱密码）
