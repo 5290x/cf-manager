@@ -42,7 +42,7 @@ CF Manager 支持三种部署方式。推荐使用 **Fork 一键部署**，最�
 
 | Secret 名称 | 说明 |
 |---|---|
-| `CF_API_KEY` | Cloudflare Global API Key |
+| `CF_GLOBAL_KEY` | Cloudflare Global API Key |
 | `CF_EMAIL` | Cloudflare 账号邮箱 |
 | `ENCRYPTION_KEY` | 加密密钥（可填 `cfmgrbest`） |
 | `API_SECRET` | 访问密码（可填 `cfmgrbest`） |
@@ -56,7 +56,7 @@ CF Manager 支持三种部署方式。推荐使用 **Fork 一键部署**，最�
 
 1. 进入 **Actions** 标签 → 左侧选 **Deploy to Cloudflare Pages**
 2. 点击 **Run workflow**，填入参数：
-   - `cf_api_key`：Cloudflare Global API Key
+   - `cf_global_key`：Cloudflare Global API Key
    - `cf_email`：Cloudflare 账号邮箱
    - `full_wipe`：勾选后可完全清空 D1 + KV 后重建（纯净部署）
    - 其他保持默认即可

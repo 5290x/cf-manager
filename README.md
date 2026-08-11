@@ -68,7 +68,7 @@ No tools to install—everything happens in the browser.
 
 1. **Fork this repo** → click Fork in the top-right corner
 2. Go to your fork → **Settings** → **Environments** → **New environment**, create an environment (e.g. `production`), and add 4 secrets inside it:
-   - `CF_API_KEY`: Cloudflare Global API Key (high-privilege key; prefer a scoped API Token, see [account auth docs](docs/account-auth.md))
+   - `CF_GLOBAL_KEY`: Cloudflare Global API Key (high-privilege key; prefer a scoped API Token, see [account auth docs](docs/account-auth.md))
    - `CF_EMAIL`: Cloudflare account email
    - `ENCRYPTION_KEY`: encryption key (use a strong random string, at least 16 chars)
    - `API_SECRET`: management UI access password (use a strong random string, avoid weak passwords)
