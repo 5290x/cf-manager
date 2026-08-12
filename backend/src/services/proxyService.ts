@@ -24,7 +24,7 @@ let cachedUrl = '';
 const accountAgentCache = new Map<number, { agent: Agent; url: string }>();
 
 function isSocks(url: string): boolean {
-  return /^socks[45h]?:\/\//i.test(url);
+  return /^socks([45][ah]?)?:\/\//i.test(url);
 }
 
 // ==================== Resin 代理池配置 ====================
