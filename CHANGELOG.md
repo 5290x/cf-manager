@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.0.2] - 2026-08-12
+
+### 🐛 Bug 修复
+
+- **修复 SOCKS5h / SOCKS4a 代理协议识别错误**：代理协议判断正则 `/^socks[45h]?:\/\//` 仅匹配单个字符，导致 `socks5h://` 与 `socks4a://` 被误判为 HTTP 代理，进而使用 `HttpsProxyAgent` 连接 SOCKS 服务端而失败（请求的还是 HTTP）。修正为 `/^socks([45][ah]?)?:\/\//`，正确识别 socks4 / socks4a / socks5 / socks5h 协议；Resin 代理池与账户专属代理、全局代理均受益。
+
+### 📝 文档
+
+- 根据 Cloudflare 权限改版更新 API Token 权限清单（closes #39）。
+- 更正 README 中 `CF_GLOBAL_KEY` 权限说明。
+
+### 🔧 CI
+
+- 统一 Cloudflare API Key 环境变量命名，新增 `CLOUDFLARE_API_KEY` 以兼容 API 密钥命名。
+
 ## [2.0.1] - 2026-08-10
 
 ### 🔧 优化
