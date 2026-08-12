@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/hefy2027/cf-manager/tree/master/docs
+    about: Check the documentation before opening an issue
+  - name: Discussions
+    url: https://github.com/hefy2027/cf-manager/discussions
+    about: Ask questions or share ideas in Discussions
