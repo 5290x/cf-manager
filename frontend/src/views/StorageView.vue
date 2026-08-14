@@ -72,10 +72,10 @@
                 <n-button size="tiny" type="primary" @click="showD1CreateTable = true">{{ t('storage.createTable') }}</n-button>
               </template>
               <n-list hoverable clickable>
-                <n-list-item v-for="t in d1Tables" :key="t.name">
+                <n-list-item v-for="table in d1Tables" :key="table.name">
                   <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
-                    <span style="cursor: pointer; flex: 1" @click="d1Sql = `SELECT * FROM ${t.name} LIMIT 100`; executeD1()">{{ t.name }}</span>
-                    <n-button size="tiny" quaternary @click.stop="openD1TableSchema(t.name)" :title="t('storage.viewSchema')">⚙</n-button>
+                    <span style="cursor: pointer; flex: 1" @click="d1Sql = `SELECT * FROM ${table.name} LIMIT 100`; executeD1()">{{ table.name }}</span>
+                    <n-button size="tiny" quaternary @click.stop="openD1TableSchema(table.name)" :title="t('storage.viewSchema')">⚙</n-button>
                   </div>
                 </n-list-item>
               </n-list>
