@@ -68,6 +68,16 @@ if (fs.existsSync(frontendDir)) {
   appLogger.info(`Serving frontend from ${frontendDir}`);
 }
 
+// SPA fallback: all non-API, non-v1 GET routes serve index.html.
+// Must be BEFORE authMiddleware so the browser can load frontend pages
+// (e.g. /ai, /dashboard) on a full page reload without an Authorization header.
+// The regex excludes /api/ and /v1/ paths, so protected API routes are unaffected.
+if (fs.existsSync(path.join(__dirname, '..', 'public'))) {
+  app.get(/^(?!\/api\/|\/v1\/).*/, (_req, res) => {
+    res.sendFile(path.join(path.join(__dirname, '..', 'public'), 'index.html'));
+  });
+}
+
 app.use(authMiddleware);
 
 // External APIs — no responseWrapper, keep original format
@@ -121,15 +131,6 @@ app.get('/api/audit-log/actions', (_req, res, next) => {
     res.json(getDistinctActions());
   } catch (err) { next(err); }
 });
-
-// SPA fallback: all non-API, non-v1 GET routes serve index.html
-// Must be AFTER authMiddleware so protected routes aren't bypassed —
-// the regex excludes /api/ and /v1/ paths, so only frontend routes hit this.
-if (fs.existsSync(path.join(__dirname, '..', 'public'))) {
-  app.get(/^(?!\/api\/|\/v1\/).*/, (_req, res) => {
-    res.sendFile(path.join(path.join(__dirname, '..', 'public'), 'index.html'));
-  });
-}
 
 app.use(errorHandler);
 
