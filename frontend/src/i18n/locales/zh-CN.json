@@ -305,6 +305,7 @@
     "statusInitializing": "初始化",
     "ttlAuto": "自动",
     "addRecordModalTitle": "添加 DNS 记录",
+    "editRecordModalTitle": "编辑 DNS 记录",
     "recordType": "类型",
     "recordTypeRequired": "请选择类型",
     "recordName": "名称",
@@ -315,6 +316,7 @@
     "recordContentRequired": "请输入内容",
     "recordContentPlaceholder": "IP 地址或域名",
     "ttl": "TTL",
+    "ttlAutoHint": "代理记录固定使用自动 TTL",
     "proxied": "代理",
     "addDomainModalTitle": "添加域名",
     "targetAccount": "目标账户",
@@ -329,6 +331,7 @@
     "resultSummary": "总计: {total}  成功: {succeeded}  失败: {failed}",
     "msg": {
       "recordAdded": "记录已添加",
+      "recordUpdated": "记录已更新",
       "recordDeleted": "记录已删除",
       "proxyUpdated": "代理状态已更新",
       "settingsUpdated": "设置已更新",

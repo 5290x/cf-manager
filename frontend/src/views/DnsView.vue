@@ -145,7 +145,7 @@
             <!-- Tab 1: DNS 记录 -->
             <n-tab-pane name="records" :tab="t('dns.records')">
               <n-space justify="end" style="margin-bottom: 12px">
-                <n-button size="small" type="primary" @click="showAddRecordModal = true">{{ t('dns.addRecord') }}</n-button>
+                <n-button size="small" type="primary" @click="openAddRecordModal">{{ t('dns.addRecord') }}</n-button>
               </n-space>
               <n-data-table
                 :columns="recordColumns"
@@ -273,10 +273,10 @@
     </n-grid>
 
     <!-- 添加 DNS 记录 Modal -->
-    <n-modal v-model:show="showAddRecordModal" preset="dialog" :title="t('dns.addRecordModalTitle')" style="width: 520px; max-width: 95vw">
+    <n-modal v-model:show="showAddRecordModal" preset="dialog" :title="editingRecordId ? t('dns.editRecordModalTitle') : t('dns.addRecordModalTitle')" style="width: 520px; max-width: 95vw">
       <n-form ref="recordFormRef" :model="newRecord" :rules="recordRules" label-placement="left" label-width="80">
         <n-form-item :label="t('dns.recordType')" path="type">
-          <n-select v-model:value="newRecord.type" :options="typeOptions" />
+          <n-select v-model:value="newRecord.type" :options="typeOptions" :disabled="!!editingRecordId" />
         </n-form-item>
         <n-form-item :label="t('dns.recordName')" path="name">
           <n-input v-model:value="newRecord.name" :placeholder="t('dns.recordNamePlaceholder')" />
@@ -288,7 +288,10 @@
           <n-input v-model:value="newRecord.content" :placeholder="t('dns.recordContentPlaceholder')" />
         </n-form-item>
         <n-form-item :label="t('dns.ttl')">
-          <n-input-number v-model:value="newRecord.ttl" :min="60" :max="86400" />
+          <n-space align="center">
+            <n-input-number v-model:value="newRecord.ttl" :min="60" :max="86400" :disabled="newRecord.proxied" />
+            <n-text v-if="newRecord.proxied" depth="3" style="font-size: 12px">{{ t('dns.ttlAutoHint') }}</n-text>
+          </n-space>
         </n-form-item>
         <n-form-item :label="t('dns.proxied')">
           <n-switch v-model:value="newRecord.proxied" />
@@ -296,7 +299,7 @@
       </n-form>
       <template #action>
         <n-button @click="showAddRecordModal = false">{{ t('common.cancel') }}</n-button>
-        <n-button type="primary" :loading="addingRecord" @click="handleAddRecord">{{ t('common.add') }}</n-button>
+        <n-button type="primary" :loading="addingRecord" @click="handleSubmitRecord">{{ editingRecordId ? t('common.save') : t('common.add') }}</n-button>
       </template>
     </n-modal>
 
@@ -497,6 +500,7 @@ async function onTabChange(tab: string) {
 // ===== DNS 记录 =====
 const showAddRecordModal = ref(false);
 const addingRecord = ref(false);
+const editingRecordId = ref<string | null>(null);
 const recordFormRef = ref<FormInst | null>(null);
 const newRecord = ref<any>({ type: 'A', name: '', content: '', ttl: 300, proxied: true, priority: 10 });
 const recordRules: FormRules = {
@@ -507,7 +511,35 @@ const recordRules: FormRules = {
 
 const typeOptions = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'NS', 'PTR'].map(t => ({ label: t, value: t }));
 
-async function handleAddRecord() {
+// 关闭代理时，若 TTL 仍是「自动」（1），恢复为默认 300，避免输入框被 clamp 成 60
+watch(() => newRecord.value.proxied, (proxied) => {
+  if (!proxied && newRecord.value.ttl === 1) {
+    newRecord.value.ttl = 300;
+  }
+});
+
+function buildRecordPayload(): Record<string, any> {
+  const payload: Record<string, any> = {
+    type: newRecord.value.type,
+    name: newRecord.value.name,
+    content: newRecord.value.content,
+    // 代理（橙云）记录的 TTL 由 Cloudflare 强制为「自动」（1），忽略自定义值
+    ttl: newRecord.value.proxied ? 1 : newRecord.value.ttl,
+    proxied: newRecord.value.proxied,
+  };
+  if (newRecord.value.type === 'MX') {
+    payload.priority = newRecord.value.priority;
+  }
+  return payload;
+}
+
+function openAddRecordModal() {
+  editingRecordId.value = null;
+  newRecord.value = { type: 'A', name: '', content: '', ttl: 300, proxied: true, priority: 10 };
+  showAddRecordModal.value = true;
+}
+
+async function handleSubmitRecord() {
   if (!dnsStore.currentDomain) return;
   try {
     await recordFormRef.value?.validate();
@@ -516,13 +548,20 @@ async function handleAddRecord() {
   }
   addingRecord.value = true;
   try {
-    await dnsApi.createRecord(dnsStore.currentDomain, newRecord.value);
-    message.success(t('dns.msg.recordAdded'));
+    const payload = buildRecordPayload();
+    if (editingRecordId.value) {
+      await dnsApi.updateRecord(dnsStore.currentDomain, editingRecordId.value, payload);
+      message.success(t('dns.msg.recordUpdated'));
+    } else {
+      await dnsApi.createRecord(dnsStore.currentDomain, payload);
+      message.success(t('dns.msg.recordAdded'));
+    }
     showAddRecordModal.value = false;
+    editingRecordId.value = null;
     newRecord.value = { type: 'A', name: '', content: '', ttl: 300, proxied: true, priority: 10 };
     dnsStore.fetchRecords(dnsStore.currentDomain);
   } catch (err: any) {
-    message.error(err?.response?.data?.error?.message || t('dns.msg.addFailed'));
+    message.error(err?.response?.data?.error?.message || t('dns.msg.saveFailed'));
   } finally {
     addingRecord.value = false;
   }
@@ -584,8 +623,26 @@ const recordColumns: DataTableColumns<any> = [
   },
 ];
 
+// 将 Cloudflare 返回的完整 FQDN 名称转为相对名称（与新增时的填写习惯一致）
+function toRecordName(name: string, zone: string): string {
+  if (!name || !zone) return name || '';
+  // 根记录（name 等于 zone 本身）显示为 @
+  if (name === zone) return '@';
+  // 去掉 zone 后缀，例如 www.example.com -> www
+  if (name.endsWith(`.${zone}`)) return name.slice(0, -(zone.length + 1));
+  return name;
+}
+
 function handleEditRecord(row: any) {
-  newRecord.value = { ...row, priority: row.priority || 10 };
+  editingRecordId.value = row.id;
+  newRecord.value = {
+    type: row.type,
+    name: toRecordName(row.name, dnsStore.currentDomain),
+    content: row.content,
+    ttl: row.ttl,
+    proxied: row.proxied,
+    priority: row.priority || 10,
+  };
   showAddRecordModal.value = true;
 }
 
