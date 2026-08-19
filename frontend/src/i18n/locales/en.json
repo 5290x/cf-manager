@@ -305,6 +305,7 @@
     "statusInitializing": "Initializing",
     "ttlAuto": "Auto",
     "addRecordModalTitle": "Add DNS Record",
+    "editRecordModalTitle": "Edit DNS Record",
     "recordType": "Type",
     "recordTypeRequired": "Please select a type",
     "recordName": "Name",
@@ -315,6 +316,7 @@
     "recordContentRequired": "Please enter content",
     "recordContentPlaceholder": "IP address or domain",
     "ttl": "TTL",
+    "ttlAutoHint": "Proxied records always use Auto TTL",
     "proxied": "Proxied",
     "addDomainModalTitle": "Add Domain",
     "targetAccount": "Target Account",
@@ -329,6 +331,7 @@
     "resultSummary": "Total: {total}  Success: {succeeded}  Failed: {failed}",
     "msg": {
       "recordAdded": "Record added",
+      "recordUpdated": "Record updated",
       "recordDeleted": "Record deleted",
       "proxyUpdated": "Proxy status updated",
       "settingsUpdated": "Settings updated",

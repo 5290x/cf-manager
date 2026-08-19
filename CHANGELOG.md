@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.0.3] - 2026-08-19
+
+### 🐛 Bug 修复
+
+- **修复 DNS 记录编辑逻辑错误**：DNS 管理页「编辑记录」与「添加记录」此前共用同一套提交逻辑，实际始终调用 `POST` 创建接口，导致编辑操作变成「新增一条同名但内容不同的记录」，旧记录需手动删除；且编辑时会把 `id`/`meta` 等脏字段一并提交。现已拆分新增/编辑模式，编辑时走 `PUT` 更新接口、仅提交干净字段并禁用类型修改；编辑时「名称」字段自动转为相对名称（如 `www.example.com` → `www`，根记录 → `@`），与新增填写习惯一致，新增/编辑记录行为恢复正常（closes #46）。
+- **修复 DNS 记录 TTL 不生效**：开启代理（橙云）的记录 TTL 被 Cloudflare 强制为「自动」（`1`），此前自定义 TTL 被静默忽略。现已按代理状态处理：代理开启时禁用 TTL 输入并提示「代理记录固定使用自动 TTL」，提交时强制 `ttl: 1`；关闭代理时恢复默认 TTL，与 Cloudflare 官方控制台行为一致。
+- **修复 StorageView 中 D1 表列表变量名遮蔽 i18n 函数**：D1 数据库表列表渲染中 `v-for` 迭代变量名 `t` 遮蔽了 vue-i18n 的 `t()` 翻译函数，点击数据库加载表列表时抛出 `TypeError: e is not a function`。将循环变量重命名为 `table`（#45）。
+
+### 📝 文档
+
+- 补充 GitHub 社区标准文件（中英双语）：新增 Issue 模板（Bug 报告 / 功能请求 / 配置）与 PR 模板，以及 `CODE_OF_CONDUCT.md`、`CONTRIBUTING.md`、`SECURITY.md`（#44）。
+
+### 🔧 CI
+
+- 新增 PR 自动构建检查工作流（`.github/workflows/ci.yml`）：针对 master 的 PR 自动触发 backend / frontend / worker 三部分编译校验，任一失败则该 PR 状态检查变红，配合分支规则集（protect-master）阻止合并（#42）。
+
 ## [2.0.2] - 2026-08-12
 
 ### 🐛 Bug 修复
