@@ -62,7 +62,7 @@ CF Manager 支持三种部署方式。推荐使用 **Fork 一键部署**，最�
    - 其他保持默认即可
 3. 点击绿色 **Run workflow** 按钮
 
-> 注意：方式二会在日志第一步短暂暴露敏感值（GitHub Actions 设计限制），建议使用方式一。
+> 注意：方式二的凭据会出现在 Workflow run 的 **Inputs 元数据**中（对有权查看仓库 Actions 的协作者可见），但不会打印到步骤日志（已通过 `::add-mask::` 脱敏）。若需完全避免元数据暴露，建议使用方式一（Environment Secrets）。
 
 #### 4. 等待部署完成
 
@@ -243,13 +243,20 @@ npm run dev
 
 全程在浏览器中操作，不需要安装 Wrangler CLI。
 
-#### 1. 创建 D1 数据库
+#### 1. 创建 D1 数据库与 KV 命名空间
+
+**创建 D1 数据库：**
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
 2. 左侧菜单 → **Workers & Pages** → **D1 SQL Database**
 3. 点击 **Create** → 名称填 `cf-manager` → 创建
 4. 进入数据库详情页 → **Console** 标签
 5. 将 `worker/src/db/schema.sql` 文件内容粘贴到控制台中执行
+
+**创建 KV 命名空间：**
+
+1. 左侧菜单 → **Workers & Pages** → **KV** → **Create a namespace**
+2. 名称填 `cfmgr` → 创建（此命名空间用于缓存模型 schema、Quota 等运行时数据）
 
 #### 2. 获取部署包
 
@@ -291,7 +298,7 @@ npm run build
    - D1 database: 选择 `cf-manager`
 2. **Settings** → **Bindings** → **Add** → **KV Namespace**
    - Variable name: `KV`
-   - KV namespace: 创建名为 `cfmgr` 的命名空间并选择
+   - KV namespace: 选择第 1 步创建的 `cfmgr`
 3. **Settings** → **Environment variables** → **Add**
    - `ENCRYPTION_KEY`：你的加密密钥（加密类型选 **Encrypt**）
    - `API_SECRET`：你的访问密码（可选，加密类型选 **Encrypt**）
@@ -410,12 +417,9 @@ cd worker && npm run deploy
 
 ### 自定义域名
 
-在 Cloudflare Dashboard → Pages → cf-manager → **Custom domains** 中添加域名。
+在 Cloudflare Dashboard → Pages → 你的项目 → **Custom domains** 中添加域名（输入你的域名，系统会自动添加 CNAME 并签发证书）。
 
-或使用 CLI：
-```bash
-wrangler pages project add-domain cf-manager your-domain.com
-```
+> 注意：Cloudflare Pages 的自定义域名目前只能通过 Dashboard 或 API 配置，**没有** `wrangler pages project add-domain` 之类的 CLI 命令，请勿使用 CLI 添加。
 
 ### Worker 架构
 

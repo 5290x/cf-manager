@@ -82,6 +82,9 @@ app.delete('/domains/:domain/records/:id', async (c) => {
   const domain = c.req.param('domain');
   const recordId = c.req.param('id');
   const { account, zoneId } = await findAccountByDomain(c.env.DB, domain, c.env.ENCRYPTION_KEY, c.env.KV);
+  if (isDemoAccount(account.id, c.env.DEMO_ACCOUNT_IDS)) {
+    return c.json({ error: { code: 'DEMO_PROTECTED', message: '演示账户不可删除 DNS 记录' } }, 403);
+  }
   await cfFetch(account, `/zones/${zoneId}/dns_records/${recordId}`, c.env.ENCRYPTION_KEY, { method: 'DELETE' });
   await addAuditLog(c.env.DB, { account_id: account.id, action: 'delete_dns', target: domain, detail: `record_id=${recordId}`, status: 'success' });
   return c.json({ success: true });
@@ -301,6 +304,9 @@ app.put('/domains/:domain/rules/:phase/:ruleId', async (c) => {
 
 app.delete('/domains/:domain/rules/:phase/:ruleId', async (c) => {
   const { account, zoneId } = await findAccountByDomain(c.env.DB, c.req.param('domain'), c.env.ENCRYPTION_KEY, c.env.KV);
+  if (isDemoAccount(account.id, c.env.DEMO_ACCOUNT_IDS)) {
+    return c.json({ error: { code: 'DEMO_PROTECTED', message: '演示账户不可删除 WAF 规则' } }, 403);
+  }
   await deleteRule(account, zoneId, c.req.param('phase'), c.req.param('ruleId'), c.env.ENCRYPTION_KEY);
   await addAuditLog(c.env.DB, { account_id: account.id, action: 'delete_rule', target: c.req.param('domain'), detail: `phase=${c.req.param('phase')} rule_id=${c.req.param('ruleId')}`, status: 'success' });
   return c.json({ success: true });

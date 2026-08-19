@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.4] - 2026-08-19
+
+### 🐛 Bug 修复
+
+- **修复 Worker 端 DNS 演示账户保护缺失**：Worker 版 DNS 路由此前仅在创建 Zone（`POST /domains`）与批量删除 Zone 处做了演示账户保护，而 `DELETE /dns/records/:id`（删除记录）与 `DELETE /dns/rules/:phase/:ruleId`（删除 WAF 规则）缺少 `isDemoAccount` 校验，导致演示账户下的 DNS 记录与 WAF 规则可被删除，与 Docker 版（backend）行为不对称。现已补齐两处演示账户校验，返回 `403 DEMO_PROTECTED`，与 backend 对齐。
+- **修复 DNS 添加框打开即报 `SyntaxError: Invalid linked format`**：I18n 消息编译器将占位文案中的裸 `@`（如 `例: www 或 @ 或 *`）误判为 linked-message 别名起始符，打包构建产物加载英文 locale 时触发解析失败；`accounts.importInstructions` 中的 `lauren.bailey2701@xx` 同理会被解析为引用不存在的 key。已将 `zh-CN`/`en` 两处裸 `@` 改为 I18n 字面量语法 `{'@'}`，打开 DNS 添加框不再报错（#47）。
+
 ## [2.0.3] - 2026-08-19
 
 ### 🐛 Bug 修复
